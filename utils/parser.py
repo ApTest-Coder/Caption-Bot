@@ -5,7 +5,7 @@ import re
 
 RES_RE = re.compile(r"(?<!\d)(\d{3,4})[pP](?!\w)|\b(\d{3,4})[xX](\d{3,4})\b")
 EP_RE = re.compile(r"(?i)(?:S\d{1,2}[ ._-]*)?E(?:P(?:ISODE)?)?[ ._-]*(\d{1,4})|(?:EP(?:ISODE)?|E)[ ._-]*(\d{1,4})")
-SEASON_RE = re.compile(r"(?i)\bS(?:EASON)?[ ._-]?(\d{1,2})\b")
+SEASON_RE = re.compile(r"(?i)\bS(?:EASON)?[ ._-]?(\d{1,2})(?!\d)")
 YEAR_RE = re.compile(r"\b(19\d{2}|20\d{2})\b")
 LANGS = ("Hindi", "English", "Japanese", "Tamil", "Telugu", "Bengali", "Korean", "Chinese", "Arabic", "French", "Spanish", "German")
 

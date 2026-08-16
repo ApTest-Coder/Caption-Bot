@@ -21,6 +21,7 @@ def message(filename="Anime.S02E07.1080p.Hindi.mkv", caption=""):
         photo=None,
         animation=None,
         voice=None,
+        sticker=None,
     )
 
 
@@ -39,16 +40,18 @@ def test_dynamic_variables():
 
 
 def test_season_with_no_separator_before_episode():
-    """Regression test: SxxEyy (no separator) must still resolve the season.
-
-    A boundary-based season regex previously required a word boundary right
-    after the captured digits, which never matches when the digits are
-    immediately followed by the episode marker (e.g. "S02E07"). That is the
-    most common release-naming convention, so the season silently fell back
-    to the "S01 - S0?" placeholder for the vast majority of real files.
-    """
+    """SxxEyy must resolve the season even without a separator."""
     result = format_caption("{season}", message(filename="Show.S09E12.720p.mkv"))
     assert result == "09"
+
+
+def test_resolution_token_is_not_treated_as_quality():
+    """A WxH token must use its width, not its height, as the quality value."""
+    result = format_caption(
+        "Quality={quality}\nResolution={resolution}",
+        message(filename="Show.S01E01.1920x1080.mkv"),
+    )
+    assert result == "Quality=1920p\nResolution=1920x1080"
 
 
 def test_episode_season_and_quality_fallbacks():
@@ -69,3 +72,30 @@ def test_missing_optional_line_is_skipped():
         message(filename="plain.mkv"),
     )
     assert result == "Keep\nDuration: 0:02:00"
+
+
+def test_photo_metadata_uses_largest_photo_size():
+    photo = SimpleNamespace(
+        file_size=2048,
+        width=1920,
+        height=1080,
+    )
+    msg = SimpleNamespace(
+        caption="",
+        text=None,
+        video=None,
+        audio=None,
+        document=None,
+        photo=[
+            SimpleNamespace(file_size=512, width=90, height=90),
+            photo,
+        ],
+        animation=None,
+        voice=None,
+        sticker=None,
+    )
+    result = format_caption(
+        "{filesize} | {resolution} | {mime_type}",
+        msg,
+    )
+    assert result == "2.00 KB | 1920x1080 | image/jpeg"

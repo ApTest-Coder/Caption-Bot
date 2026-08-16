@@ -1,1 +1,1 @@
-# Placeholder
+"""Temporary recovery marker."""

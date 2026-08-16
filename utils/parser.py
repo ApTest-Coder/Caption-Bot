@@ -122,4 +122,8 @@ def media_values(message) -> dict:
             duration=media.duration,
             mime_type=media.mime_type,
         )
-    return {key: value for key, value in values.items() if value is not None}
+    return {
+        key: value
+        for key, value in values.items()
+        if value is not None
+    }

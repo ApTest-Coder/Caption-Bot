@@ -1,255 +1,236 @@
-import asyncio, json, logging, os, re, time
-from aiogram import Bot, Dispatcher, F, Router
+import asyncio, json, logging, os, time
+from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.enums import ButtonStyle
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
+from config import *
 from database.db import Database
-from config import BOT_TOKEN, OWNER_ID, PUBLIC_MODE, MAIN_CHANNEL, FSUB_CHANNEL, ADMIN_USERNAME, START_PIC, FSUB_PIC
 from utils.formatter import format_caption
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 log=logging.getLogger('caption-bot')
-router=Router(); db=Database(); states={}; stats={'processed':0,'edited':0,'failed':0,'started':time.time()}
+router=Router(); db=Database(); states={}; started=time.time(); runtime={'processed':0,'edited':0,'failed':0}
+DEFAULT={'caption':'','buttons':[],'replacements':{},'filters':{},'forward':{'enabled':False,'destination':None},'prefix':'','suffix':'','stickers':{'enabled':False},'media_details':False}
 
-DEFAULT={
- 'caption':'','buttons':[],'replacements':{},'filters':{},'forward':{'enabled':False,'destination':None},
- 'prefix':'','suffix':'','stickers':{'enabled':False},'media_details':False
-}
-
-def is_media(m): return bool(m.video or m.audio or m.document or m.photo or m.animation or m.voice or m.sticker)
-def cfg(row):
-    try: c=json.loads(row.get('config') or '{}')
-    except Exception: c={}
-    out=json.loads(json.dumps(DEFAULT)); out.update(c); return out
-
-def style(name):
-    # Telegram Bot API button styles: primary/green/success/danger.
-    return {'blue':ButtonStyle.PRIMARY,'primary':ButtonStyle.PRIMARY,'green':ButtonStyle.SUCCESS,'success':ButtonStyle.SUCCESS,'red':ButtonStyle.DANGER,'danger':ButtonStyle.DANGER}.get((name or 'blue').lower(),ButtonStyle.PRIMARY)
-
-def menu(user_id):
-    return InlineKeyboardMarkup(inline_keyboard=[
-      [InlineKeyboardButton(text='📺 Channels',callback_data='channels',style=ButtonStyle.PRIMARY),InlineKeyboardButton(text='📊 Stats',callback_data='stats',style=ButtonStyle.SUCCESS)],
-      [InlineKeyboardButton(text='⚙️ Settings',callback_data='global_settings',style=ButtonStyle.PRIMARY),InlineKeyboardButton(text='ℹ️ Help',callback_data='help',style=ButtonStyle.PRIMARY)]])
-
-def channel_list_markup(rows):
-    kb=[]
-    for r in rows[:30]: kb.append([InlineKeyboardButton(text=f"📢 {r.get('title','Channel')}",callback_data=f"ch:{r['channel_id']}",style=ButtonStyle.PRIMARY)])
-    kb.append([InlineKeyboardButton(text='➕ Add New Channel',callback_data='add_channel',style=ButtonStyle.SUCCESS)])
-    return InlineKeyboardMarkup(inline_keyboard=kb)
-
-def settings_markup(cid,c):
-    def on(v): return 'ON ✅' if v else 'OFF ❌'
-    return InlineKeyboardMarkup(inline_keyboard=[
-      [InlineKeyboardButton(text='📝 Caption',callback_data=f'set:caption:{cid}',style=ButtonStyle.PRIMARY),InlineKeyboardButton(text='🔘 Buttons',callback_data=f'set:buttons:{cid}',style=ButtonStyle.SUCCESS)],
-      [InlineKeyboardButton(text='🔄 Replace',callback_data=f'set:replace:{cid}',style=ButtonStyle.PRIMARY),InlineKeyboardButton(text=f"🎯 Filters {on(bool(c.get('filters')))}",callback_data=f'set:filters:{cid}',style=ButtonStyle.SUCCESS)],
-      [InlineKeyboardButton(text=f"📤 Forward {on(c.get('forward',{}).get('enabled'))}",callback_data=f'set:forward:{cid}',style=ButtonStyle.PRIMARY),InlineKeyboardButton(text=f"✨ Prefix {on(bool(c.get('prefix')))}",callback_data=f'set:prefix:{cid}',style=ButtonStyle.SUCCESS)],
-      [InlineKeyboardButton(text=f"✨ Suffix {on(bool(c.get('suffix')))}",callback_data=f'set:suffix:{cid}',style=ButtonStyle.PRIMARY),InlineKeyboardButton(text=f"🎉 Stickers {on(c.get('stickers',{}).get('enabled'))}",callback_data=f'set:stickers:{cid}',style=ButtonStyle.SUCCESS)],
-      [InlineKeyboardButton(text=f"📊 Media Details {on(c.get('media_details'))}",callback_data=f'set:media:{cid}',style=ButtonStyle.PRIMARY)],
-      [InlineKeyboardButton(text='🗑 Remove Channel',callback_data=f'remove:{cid}',style=ButtonStyle.DANGER),InlineKeyboardButton(text='↩️ Back',callback_data='channels',style=ButtonStyle.PRIMARY)]
-    ])
-
-async def allowed(message: Message):
-    if await db.is_admin(message.from_user.id): return True
-    if PUBLIC_MODE: return True
-    await message.answer(f'🔒 This Bot Is Private\n\nPlease contact the administrator. {ADMIN_USERNAME}')
+async def is_admin(uid): return await db.is_admin(uid)
+async def access(m):
+    await db.user_upsert(m.from_user.id, m.from_user.username or '')
+    if await is_admin(m.from_user.id) or PUBLIC_MODE: return True
+    await m.answer(f'🔒 This Bot Is Private\n\nPlease contact the administrator. {ADMIN_USERNAME}')
+    return False
+async def admin_access(m):
+    if await is_admin(m.from_user.id): return True
+    if not PUBLIC_MODE: await m.answer(f'🔒 This Bot Is Private\n\nPlease contact the administrator. {ADMIN_USERNAME}')
+    else: await m.answer('❌ Admin only.')
     return False
 
-async def admin_only(message: Message):
-    if not await db.is_admin(message.from_user.id):
-        if not PUBLIC_MODE: await message.answer(f'🔒 This Bot Is Private\n\nPlease contact the administrator. {ADMIN_USERNAME}')
-        else: await message.answer('❌ Admin only.')
-        return False
-    return True
+def load(row):
+    try: c=json.loads(row.get('config') or '{}')
+    except Exception: c={}
+    out=json.loads(json.dumps(DEFAULT));
+    for k,v in c.items(): out[k]=v
+    return out
+
+def button_style(color):
+    return {'blue':ButtonStyle.PRIMARY,'primary':ButtonStyle.PRIMARY,'green':ButtonStyle.SUCCESS,'success':ButtonStyle.SUCCESS,'red':ButtonStyle.DANGER,'danger':ButtonStyle.DANGER}.get((color or 'blue').lower(),ButtonStyle.PRIMARY)
+
+def main_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+      [InlineKeyboardButton(text='📺 Channels',callback_data='channels',style=ButtonStyle.PRIMARY),InlineKeyboardButton(text='📊 Stats',callback_data='stats',style=ButtonStyle.SUCCESS)],
+      [InlineKeyboardButton(text='⚙️ Settings',callback_data='settings',style=ButtonStyle.PRIMARY),InlineKeyboardButton(text='ℹ️ Help',callback_data='help',style=ButtonStyle.PRIMARY)]])
+
+def channels_menu(rows):
+    kb=[[InlineKeyboardButton(text=f"📢 {r.get('title','Channel')}",callback_data=f'ch:{r["channel_id"]}',style=ButtonStyle.PRIMARY)] for r in rows[:40]]
+    kb += [[InlineKeyboardButton(text='➕ Add New Channel',callback_data='add_channel',style=ButtonStyle.SUCCESS)],[InlineKeyboardButton(text='↩️ Back',callback_data='home',style=ButtonStyle.PRIMARY)]]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+def settings_menu(cid,c):
+    def state(v): return 'ON ✅' if v else 'OFF ❌'
+    return InlineKeyboardMarkup(inline_keyboard=[
+      [InlineKeyboardButton(text='📝 Caption',callback_data=f'set:caption:{cid}',style=ButtonStyle.PRIMARY),InlineKeyboardButton(text=f'🔘 Buttons ({len(c.get("buttons",[]))})',callback_data=f'set:buttons:{cid}',style=ButtonStyle.SUCCESS)],
+      [InlineKeyboardButton(text=f'🔄 Replace ({len(c.get("replacements",{}))})',callback_data=f'set:replace:{cid}',style=ButtonStyle.PRIMARY),InlineKeyboardButton(text=f'🎯 Filters {state(bool(c.get("filters")))}',callback_data=f'set:filters:{cid}',style=ButtonStyle.SUCCESS)],
+      [InlineKeyboardButton(text=f'📤 Forward {state(c.get("forward",{}).get("enabled"))}',callback_data=f'set:forward:{cid}',style=ButtonStyle.PRIMARY),InlineKeyboardButton(text=f'✨ Prefix {state(bool(c.get("prefix")))}',callback_data=f'set:prefix:{cid}',style=ButtonStyle.SUCCESS)],
+      [InlineKeyboardButton(text=f'✨ Suffix {state(bool(c.get("suffix")))}',callback_data=f'set:suffix:{cid}',style=ButtonStyle.PRIMARY),InlineKeyboardButton(text=f'🎉 Stickers {state(c.get("stickers",{}).get("enabled"))}',callback_data=f'set:stickers:{cid}',style=ButtonStyle.SUCCESS)],
+      [InlineKeyboardButton(text=f'📊 Media Details {state(c.get("media_details"))}',callback_data=f'set:media:{cid}',style=ButtonStyle.PRIMARY)],
+      [InlineKeyboardButton(text='🗑 Remove Channel',callback_data=f'remove:{cid}',style=ButtonStyle.DANGER),InlineKeyboardButton(text='↩️ Back',callback_data='channels',style=ButtonStyle.PRIMARY)]])
+
+def has_media(m): return any((m.video,m.audio,m.document,m.photo,m.animation,m.voice,m.sticker))
+
+def media_filter_ok(m, filt):
+    if not filt: return True
+    t=(filt.get('type') or '').lower(); mp={'video':m.video,'audio':m.audio,'document':m.document,'photo':m.photo,'animation':m.animation,'voice':m.voice,'sticker':m.sticker}
+    return not t or bool(mp.get(t))
+
+async def safe_error(bot, m, exc):
+    runtime['failed']+=1; text=f'<b>🚨 Caption Bot Error</b>\n\n<b>Channel:</b> {m.chat.title or m.chat.id}\n<b>Message:</b> {m.message_id}\n<blockquote expandable><b>Reason:</b> {str(exc)[:3000]}</blockquote>'
+    try: await bot.send_message(OWNER_ID,text,parse_mode='HTML')
+    except Exception: pass
+
+async def apply_channel_post(bot,m):
+    row=await db.get_channel(m.chat.id)
+    if not row or not has_media(m): return
+    c=load(row)
+    if not media_filter_ok(m,c.get('filters')): return
+    runtime['processed']+=1
+    try:
+        caption=format_caption(c.get('caption',''),m) if c.get('caption') else (m.caption or '')
+        for a,b in c.get('replacements',{}).items(): caption=caption.replace(a,b)
+        if c.get('prefix'): caption=c['prefix']+'\n'+caption
+        if c.get('suffix'): caption=caption+'\n'+c['suffix']
+        buttons=[]
+        for b in c.get('buttons',[]):
+            if b.get('text') and b.get('url'): buttons.append(InlineKeyboardButton(text=b['text'],url=b['url'],style=button_style(b.get('color'))))
+        markup=InlineKeyboardMarkup(inline_keyboard=[buttons[i:i+2] for i in range(0,len(buttons),2)]) if buttons else None
+        if caption and caption != (m.caption or '') or markup:
+            await bot.edit_message_caption(m.chat.id,m.message_id,caption=caption or None,parse_mode='HTML',reply_markup=markup)
+            runtime['edited']+=1
+        f=c.get('forward',{}); dest=f.get('destination') if f.get('enabled') else None
+        if dest: await bot.copy_message(dest,m.chat.id,m.message_id)
+    except TelegramRetryAfter as e:
+        await asyncio.sleep(e.retry_after); await apply_channel_post(bot,m)
+    except Exception as e:
+        await safe_error(bot,m,e)
 
 @router.message(CommandStart())
-async def start(m: Message):
-    await db.user_upsert(m.from_user.id, m.from_user.username or '')
-    if not PUBLIC_MODE and not await db.is_admin(m.from_user.id):
-        await m.answer(f'🔒 This Bot Is Private\n\nPlease contact the administrator. {ADMIN_USERNAME}')
-        return
-    text='👋 <b>Welcome to Auto Caption Bot</b>\n\nAutomatically edit captions, buttons and channel formatting.\n\n⚡ Fast • Multi-channel • Smart parser'
-    if START_PIC and os.path.exists(START_PIC): await m.answer_photo(open(START_PIC,'rb'),caption=text,reply_markup=menu(m.from_user.id),parse_mode='HTML')
-    else: await m.answer(text,reply_markup=menu(m.from_user.id),parse_mode='HTML')
+async def start(m:Message):
+    await db.user_upsert(m.from_user.id,m.from_user.username or '')
+    if not PUBLIC_MODE and not await is_admin(m.from_user.id): return await m.answer(f'🔒 This Bot Is Private\n\nPlease contact the administrator. {ADMIN_USERNAME}')
+    text='👋 <b>Welcome to Auto Caption Bot</b>\n\n⚡ Multi-channel • Smart Caption • Colored Buttons'
+    if START_PIC and os.path.exists(START_PIC):
+        with open(START_PIC,'rb') as p: await m.answer_photo(p,caption=text,reply_markup=main_menu(),parse_mode='HTML')
+    else: await m.answer(text,reply_markup=main_menu(),parse_mode='HTML')
 
 @router.message(Command('help'))
-async def help_cmd(m:Message):
-    if not await allowed(m): return
-    await m.answer('''<b>Help</b>\n\n/start — start bot\n/channels — manage channels\n/stats — statistics\n/settings — global settings\n\nAll channel configuration is handled from the button UI. Admin commands are restricted.''',parse_mode='HTML')
+async def help_cmd(m):
+    if await access(m): await m.answer('<b>Help</b>\n\nUse /channels to add and configure your channels. Every channel has independent caption, buttons, replace, filters, forward, prefix, suffix, stickers and media settings.',parse_mode='HTML')
 
 @router.message(Command('settings'))
-async def settings_cmd(m:Message):
-    if not await allowed(m): return
-    await m.answer('⚙️ <b>Settings</b>\n\nChoose a channel from /channels to configure its caption, buttons, replace rules, filters, forwarding, prefix, suffix, stickers and media details.',parse_mode='HTML',reply_markup=menu(m.from_user.id))
+async def settings_cmd(m):
+    if await access(m): await m.answer('⚙️ Select a channel from /channels to open its settings.',reply_markup=main_menu())
 
 @router.message(Command('channels'))
-async def channels_cmd(m:Message):
-    if not await allowed(m): return
-    rows=await db.list_channels(m.from_user.id)
-    await m.answer(f'📺 <b>Channel Settings</b>\n\nConnected Channels: <b>{len(rows)}</b>\n\nSelect a channel:',parse_mode='HTML',reply_markup=channel_list_markup(rows))
+async def channels_cmd(m):
+    if not await access(m): return
+    rows=await db.list_channels(m.from_user.id); await m.answer(f'📺 <b>Channels</b>\n\nConnected: <b>{len(rows)}</b>',parse_mode='HTML',reply_markup=channels_menu(rows))
 
 @router.message(Command('stats'))
-async def stats_cmd(m:Message):
-    if not await allowed(m): return
-    c=await db.counts(); up=int(time.time()-stats['started']); await m.answer(f'📊 <b>Bot Statistics</b>\n\n👥 Users: {c["users"]}\n📺 Channels: {c["channels"]}\n📥 Processed: {stats["processed"]}\n✅ Edited: {stats["edited"]}\n❌ Errors: {stats["failed"]}\n⏱ Uptime: {up//3600}h {(up%3600)//60}m',parse_mode='HTML')
+async def stats_cmd(m):
+    if not await access(m): return
+    c=await db.counts(); up=int(time.time()-started); await m.answer(f'📊 <b>Statistics</b>\n\n👥 Users: {c["users"]}\n📺 Channels: {c["channels"]}\n📥 Processed: {runtime["processed"]}\n✅ Edited: {runtime["edited"]}\n❌ Errors: {runtime["failed"]}\n⏱ Uptime: {up//86400}d {(up%86400)//3600}h {(up%3600)//60}m',parse_mode='HTML')
 
 @router.message(Command('addadmin'))
-async def addadmin(m:Message):
-    if not await admin_only(m): return
-    if len(m.text.split())<2: return await m.answer('Usage: /addadmin USER_ID')
-    await db.add_admin(int(m.text.split()[1])); await m.answer('✅ Admin added.')
+async def add_admin_cmd(m):
+    if not await admin_access(m): return
+    try: uid=int(m.text.split(maxsplit=1)[1]); await db.add_admin(uid); await m.answer('✅ Admin added.')
+    except: await m.answer('Usage: /addadmin USER_ID')
 
 @router.message(Command('deladmin'))
-async def deladmin(m:Message):
-    if not await admin_only(m): return
-    if len(m.text.split())<2: return await m.answer('Usage: /deladmin USER_ID')
-    await db.del_admin(int(m.text.split()[1])); await m.answer('✅ Admin removed.')
+async def del_admin_cmd(m):
+    if not await admin_access(m): return
+    try: uid=int(m.text.split(maxsplit=1)[1]); await db.del_admin(uid); await m.answer('✅ Admin removed.')
+    except: await m.answer('Usage: /deladmin USER_ID')
+
+@router.message(Command('set_public'))
+async def set_public_cmd(m):
+    if await admin_access(m): await m.answer('Change PUBLIC_MODE in config.py and restart the bot.')
 
 @router.message(Command('broadcast'))
-async def broadcast(m:Message):
-    if not await admin_only(m): return
-    if not m.reply_to_message: return await m.answer('Reply to a message with /broadcast.')
-    rows=await db.db.users.find({}).to_list(10000) if hasattr(db,'db') and db.db is not None else []
+async def broadcast_cmd(m):
+    if not await admin_access(m): return
+    if not m.reply_to_message: return await m.answer('Reply to the message you want to broadcast with /broadcast.')
+    users=[]
+    if db.db is not None and DATABASE_TYPE.lower()=='mongodb': users=await db.db.users.find({}, {'user_id':1}).to_list(10000)
+    else:
+        cur=await db.sqlite.execute('SELECT user_id FROM users'); users=[{'user_id':x[0]} for x in await cur.fetchall()]
     ok=bad=0
-    for u in rows:
+    for u in users:
         try: await m.reply_to_message.copy_to(u['user_id']); ok+=1
         except Exception: bad+=1
         await asyncio.sleep(.05)
-    await m.answer(f'📢 Broadcast finished.\n\n✅ Sent: {ok}\n❌ Failed: {bad}')
+    await m.answer(f'📢 Broadcast complete\n\n✅ Sent: {ok}\n❌ Failed: {bad}')
 
-@router.message(Command('set_public'))
-async def set_public(m:Message):
-    if not await admin_only(m): return
-    await m.answer('PUBLIC_MODE is configured in config.py. Restart the bot after changing it.')
-
+@router.callback_query(F.data=='home')
+async def home(q): await q.message.edit_text('🤖 <b>Auto Caption Bot</b>',parse_mode='HTML',reply_markup=main_menu()); await q.answer()
 @router.callback_query(F.data=='help')
-async def cb_help(q:CallbackQuery): await q.message.edit_text('Use /channels to add and configure channels. Use the inline settings to manage each channel independently.'); await q.answer()
-
+async def cb_help(q): await q.message.edit_text('Use /channels to manage channels. All channel settings are independent.',reply_markup=main_menu()); await q.answer()
+@router.callback_query(F.data=='settings')
+async def cb_settings(q): await q.message.edit_text('⚙️ Choose /channels to configure a channel.',reply_markup=main_menu()); await q.answer()
 @router.callback_query(F.data=='stats')
-async def cb_stats(q:CallbackQuery):
-    c=await db.counts(); await q.message.edit_text(f'📊 Users: {c["users"]}\n📺 Channels: {c["channels"]}\n📥 Processed: {stats["processed"]}\n✅ Edited: {stats["edited"]}\n❌ Errors: {stats["failed"]}',reply_markup=menu(q.from_user.id)); await q.answer()
-
+async def cb_stats(q): await stats_cmd(q.message); await q.answer()
 @router.callback_query(F.data=='channels')
-async def cb_channels(q:CallbackQuery):
-    if not await allowed(q.message): return await q.answer()
-    rows=await db.list_channels(q.from_user.id); await q.message.edit_text(f'📺 <b>Channel Settings</b>\n\nConnected: {len(rows)}\n\nSelect a channel:',parse_mode='HTML',reply_markup=channel_list_markup(rows)); await q.answer()
+async def cb_channels(q):
+    rows=await db.list_channels(q.from_user.id); await q.message.edit_text(f'📺 <b>Channels</b>\n\nConnected: <b>{len(rows)}</b>',parse_mode='HTML',reply_markup=channels_menu(rows)); await q.answer()
 
 @router.callback_query(F.data=='add_channel')
-async def cb_add(q:CallbackQuery):
-    states[q.from_user.id]={'state':'add_channel'}
-    await q.message.edit_text('➕ <b>Add Channel</b>\n\nSend the Channel ID, or forward any message from your channel to me.\n\nThe bot must already be an administrator in that channel.',parse_mode='HTML'); await q.answer()
-
-@router.message()
-async def private_state(m:Message):
-    uid=m.from_user.id
-    st=states.get(uid)
-    if not st or m.chat.type!='private': return
-    if st['state']=='add_channel':
-        cid=None
-        origin=getattr(m,'forward_origin',None)
-        if origin and getattr(origin,'chat',None): cid=origin.chat.id
-        if not cid:
-            try: cid=int((m.text or '').strip())
-            except Exception: return await m.answer('❌ Send a valid channel ID or forward a channel message.')
-        try:
-            me=await m.bot.get_me(); member=await m.bot.get_chat_member(cid,me.id)
-            if member.status not in ('administrator','creator'): return await m.answer('❌ Bot is not an administrator in this channel.')
-            chat=await m.bot.get_chat(cid)
-            await db.save_channel(uid,cid,chat.title or 'Channel',chat.username or '',json.dumps(DEFAULT))
-            states.pop(uid,None); await m.answer(f'✅ Channel added successfully.\n\n📢 {chat.title}\n🆔 {cid}',reply_markup=settings_markup(cid,DEFAULT))
-        except Exception as e: await m.answer(f'❌ Could not add channel.\nReason: {str(e)[:500]}')
-        return
-    cid=st.get('cid'); row=await db.get_channel(cid)
-    if not row: states.pop(uid,None); return await m.answer('Channel not found.')
-    c=cfg(row); kind=st['state']
-    if kind=='caption': c['caption']=m.text or m.caption or ''; states.pop(uid,None)
-    elif kind=='prefix': c['prefix']=m.text or ''; states.pop(uid,None)
-    elif kind=='suffix': c['suffix']=m.text or ''; states.pop(uid,None)
-    elif kind=='replace':
-        parts=(m.text or '').split('|',1)
-        if len(parts)!=2: return await m.answer('Format: old text | new text')
-        c['replacements'][parts[0].strip()]=parts[1].strip(); states.pop(uid,None)
-    elif kind=='buttons':
-        parts=(m.text or '').split('|')
-        if len(parts)<3: return await m.answer('Format: Button Text | URL | blue/green/red')
-        c['buttons'].append({'text':parts[0].strip(),'url':parts[1].strip(),'color':parts[2].strip().lower()}); states.pop(uid,None)
-    elif kind=='forward':
-        try: c['forward']={'enabled':True,'destination':int((m.text or '').strip())}
-        except: return await m.answer('Send destination channel ID.')
-        states.pop(uid,None)
-    elif kind=='filters':
-        c['filters']={'type':(m.text or '').strip().lower()}; states.pop(uid,None)
-    elif kind=='stickers': c['stickers']={'enabled':(m.text or '').strip().lower() in ('on','yes','true','1')}; states.pop(uid,None)
-    else: return
-    await db.save_channel(row['owner_id'],cid,row.get('title','Channel'),row.get('username',''),json.dumps(c)); await m.answer('✅ Setting saved.',reply_markup=settings_markup(cid,c))
+async def add_channel_cb(q): states[q.from_user.id]={'type':'channel'}; await q.message.edit_text('➕ <b>Add Channel</b>\n\nSend the Channel ID or forward any message from your channel here.\n\nThe bot must already be an administrator.\n\n/cancel',parse_mode='HTML'); await q.answer()
 
 @router.callback_query(F.data.startswith('ch:'))
-async def cb_channel(q:CallbackQuery):
+async def channel_cb(q):
     cid=int(q.data.split(':')[1]); row=await db.get_channel(cid)
     if not row or row['owner_id']!=q.from_user.id: return await q.answer('Not your channel.',show_alert=True)
-    await q.message.edit_text(f'📄 <b>{row.get("title","Channel")}</b>\n\n🆔 {cid}\n🔗 @{row.get("username") or "private"}',parse_mode='HTML',reply_markup=settings_markup(cid,cfg(row))); await q.answer()
+    await q.message.edit_text(f'📄 <b>{row["title"]}</b>\n🆔 <code>{cid}</code>\n🔗 @{row.get("username") or "private"}',parse_mode='HTML',reply_markup=settings_menu(cid,load(row))); await q.answer()
 
 @router.callback_query(F.data.startswith('set:'))
-async def cb_setting(q:CallbackQuery):
-    _,kind,cid_s=q.data.split(':'); cid=int(cid_s); row=await db.get_channel(cid)
+async def set_cb(q):
+    _,kind,cid=q.data.split(':'); cid=int(cid); row=await db.get_channel(cid)
     if not row or row['owner_id']!=q.from_user.id: return await q.answer('Not your channel.',show_alert=True)
-    c=cfg(row)
-    if kind=='media': c['media_details']=not c.get('media_details'); await db.save_channel(row['owner_id'],cid,row['title'],row.get('username',''),json.dumps(c)); await q.message.edit_reply_markup(reply_markup=settings_markup(cid,c)); return await q.answer()
-    if kind=='stickers': c['stickers']['enabled']=not c.get('stickers',{}).get('enabled'); await db.save_channel(row['owner_id'],cid,row['title'],row.get('username',''),json.dumps(c)); await q.message.edit_reply_markup(reply_markup=settings_markup(cid,c)); return await q.answer()
-    states[q.from_user.id]={'state':kind,'cid':cid}
-    prompts={'caption':'📝 Send your caption template.','buttons':'🔘 Send: Button Text | URL | blue/green/red','replace':'🔄 Send: old text | new text','filters':'🎯 Send media type: video/audio/document/photo','forward':'📤 Send destination channel ID.','prefix':'✨ Send prefix text.','suffix':'✨ Send suffix text.'}
-    await q.message.edit_text(prompts[kind]+'\n\n/cancel to cancel'); await q.answer()
-
-@router.message(Command('cancel'))
-async def cancel(m:Message): states.pop(m.from_user.id,None); await m.answer('❌ Cancelled.')
+    c=load(row)
+    if kind in ('media','stickers'):
+        key='media_details' if kind=='media' else None
+        if kind=='media': c[key]=not c.get(key)
+        else: c['stickers']['enabled']=not c.get('stickers',{}).get('enabled')
+        await db.save_channel(row['owner_id'],cid,row['title'],row.get('username',''),json.dumps(c)); await q.message.edit_reply_markup(reply_markup=settings_menu(cid,c)); return await q.answer()
+    states[q.from_user.id]={'type':kind,'cid':cid}
+    prompts={'caption':'📝 Send the complete caption template.','buttons':'🔘 Send: Button Text | URL | blue/green/red','replace':'🔄 Send: old text | new text','filters':'🎯 Send: video/audio/document/photo/animation/voice/sticker','forward':'📤 Send destination channel ID.','prefix':'✨ Send prefix.','suffix':'✨ Send suffix.'}
+    await q.message.edit_text(prompts[kind]+'\n\n/cancel'); await q.answer()
 
 @router.callback_query(F.data.startswith('remove:'))
-async def cb_remove(q:CallbackQuery):
+async def remove_cb(q):
     cid=int(q.data.split(':')[1]); row=await db.get_channel(cid)
     if not row or row['owner_id']!=q.from_user.id: return await q.answer('Not your channel.',show_alert=True)
     await db.delete_channel(cid,q.from_user.id); await q.message.edit_text('🗑 Channel removed.',reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='↩️ Channels',callback_data='channels',style=ButtonStyle.PRIMARY)]])); await q.answer()
 
-@router.channel_post()
-async def channel_post(m:Message):
-    row=await db.get_channel(m.chat.id)
-    if not row or not is_media(m) and not m.text: return
-    c=cfg(row); stats['processed']+=1
+@router.message(Command('cancel'))
+async def cancel(m): states.pop(m.from_user.id,None); await m.answer('❌ Cancelled.')
+
+@router.message(F.chat.type=='private')
+async def private_input(m):
+    uid=m.from_user.id; st=states.get(uid)
+    if not st: return
     try:
-        # Basic filter support.
-        f=(c.get('filters') or {}).get('type')
-        if f and f!='all':
-            actual='video' if m.video else 'audio' if m.audio else 'document' if m.document else 'photo' if m.photo else 'animation' if m.animation else 'other'
-            if actual!=f: return
-        caption=c.get('caption','')
-        if caption:
-            new=format_caption(caption,m)
-            for old,newval in c.get('replacements',{}).items(): new=new.replace(old,newval)
-            if c.get('prefix'): new=f"{c['prefix']}\n{new}" if new else c['prefix']
-            if c.get('suffix'): new=f"{new}\n{c['suffix']}" if new else c['suffix']
-            kb=None
-            if c.get('buttons'):
-                rows=[]; current=[]
-                for b in c['buttons']:
-                    current.append(InlineKeyboardButton(text=b['text'],url=b['url'],style=style(b.get('color'))))
-                    if len(current)==2: rows.append(current); current=[]
-                if current: rows.append(current)
-                kb=InlineKeyboardMarkup(inline_keyboard=rows)
-            if m.caption is not None: await m.edit_caption(caption=new,reply_markup=kb,parse_mode='HTML')
-            elif m.text is not None: await m.edit_text(text=new,reply_markup=kb,parse_mode='HTML')
-            stats['edited']+=1
-        # Optional forward: copy the edited message to destination.
-        dest=c.get('forward',{}).get('destination') if c.get('forward',{}).get('enabled') else None
-        if dest: await m.copy_to(dest)
-    except Exception as e:
-        stats['failed']+=1
-        logging.exception('Channel processing failed')
-        # Errors go to owner/admin DM only.
-        text=f'<b><i>⚠️ Error while processing a channel post.</i></b>\n<blockquote expandable><b>Reason:</b> {str(e)[:3500]}</blockquote>'
-        for aid in [OWNER_ID]:
-            try: await m.bot.send_message(aid,text,parse_mode='HTML')
-            except Exception: pass
+        if st['type']=='channel':
+            cid=None; origin=getattr(m,'forward_origin',None)
+            if origin and getattr(origin,'chat',None): cid=origin.chat.id
+            if cid is None: cid=int((m.text or '').strip())
+            me=await m.bot.get_me(); member=await m.bot.get_chat_member(cid,me.id)
+            if member.status not in ('administrator','creator'): return await m.answer('❌ Bot must be an administrator in the channel.')
+            chat=await m.bot.get_chat(cid); await db.save_channel(uid,cid,chat.title or 'Channel',chat.username or '',json.dumps(DEFAULT)); states.pop(uid,None)
+            return await m.answer(f'✅ <b>{chat.title}</b> added.',parse_mode='HTML',reply_markup=settings_menu(cid,DEFAULT))
+        cid=st['cid']; row=await db.get_channel(cid)
+        if not row: states.pop(uid,None); return await m.answer('❌ Channel not found.')
+        c=load(row); typ=st['type']; text=m.text or m.caption or ''
+        if typ=='caption': c['caption']=text
+        elif typ=='prefix': c['prefix']=text
+        elif typ=='suffix': c['suffix']=text
+        elif typ=='replace':
+            p=text.split('|',1)
+            if len(p)!=2: return await m.answer('Use: old text | new text')
+            c['replacements'][p[0].strip()]=p[1].strip()
+        elif typ=='buttons':
+            p=[x.strip() for x in text.split('|')]
+            if len(p)!=3 or p[2].lower() not in ('blue','green','red'): return await m.answer('Use: Button Text | URL | blue/green/red')
+            c['buttons'].append({'text':p[0],'url':p[1],'color':p[2].lower()})
+        elif typ=='forward': c['forward']={'enabled':True,'destination':int(text)}
+        elif typ=='filters': c['filters']={'type':text.lower()}
+        else: return
+        await db.save_channel(row['owner_id'],cid,row['title'],row.get('username',''),json.dumps(c)); states.pop(uid,None); await m.answer('✅ Saved.',reply_markup=settings_menu(cid,c))
+    except Exception as e: await safe_error(m.bot,m,e)
+
+@router.channel_post()
+async def on_channel_post(m): await apply_channel_post(m.bot,m)
 
 async def main():
-    if BOT_TOKEN.startswith('YOUR_') or OWNER_ID==123456789: raise RuntimeError('Configure config.py before running the bot.')
-    await db.connect(); bot=Bot(BOT_TOKEN); dp=Dispatcher(); dp.include_router(router); log.info('Bot started'); await dp.start_polling(bot,allowed_updates=dp.resolve_used_update_types())
+    await db.connect(); bot=Bot(BOT_TOKEN); dp=Dispatcher(); dp.include_router(router); log.info('Bot started'); await dp.start_polling(bot)
 
 if __name__=='__main__': asyncio.run(main())

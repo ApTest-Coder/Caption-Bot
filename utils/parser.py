@@ -51,7 +51,10 @@ def parse_filename(name: str) -> dict[str, str | None]:
 
     match = RES_RE.search(text)
     if match:
-        result["quality"] = f"{match.group(1) or match.group(3)}p"
+        if match.group(1):
+            result["quality"] = f"{match.group(1)}p"
+        else:
+            result["quality"] = f"{match.group(2)}p"
 
     match = YEAR_RE.search(text)
     if match:
@@ -98,7 +101,7 @@ def media_values(message) -> dict:
             mime_type=media.mime_type,
         )
     elif message.photo:
-        media = message.photo
+        media = message.photo[-1]
         values.update(
             filesize=media.file_size,
             width=media.width,

@@ -1,0 +1,15 @@
+[project]
+name = "caption-bot"
+version = "0.1.0"
+description = "Production-oriented Telegram auto caption bot with multi-channel settings."
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

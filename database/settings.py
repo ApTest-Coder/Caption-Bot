@@ -6,6 +6,9 @@ import copy
 import os
 from datetime import UTC, datetime
 
+import aiosqlite
+from motor.motor_asyncio import AsyncIOMotorClient
+
 from config import (
     DATABASE_NAME,
     DATABASE_TYPE,
@@ -13,9 +16,6 @@ from config import (
     OWNER_ID,
     SQLITE_DATABASE,
 )
-from motor.motor_asyncio import AsyncIOMotorClient
-
-import aiosqlite
 
 DEFAULT_SETTINGS = {
     "caption": "",

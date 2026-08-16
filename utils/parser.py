@@ -9,10 +9,10 @@ LANGS = ['Hindi','English','Japanese','Tamil','Telugu','Bengali','Korean','Chine
 def parse_filename(name: str):
     text=name or ''
     out={}
-    m=EP_RE.search(text); out['episode']=m.group(1) or m.group(2) if m else None
+    m=EP_RE.search(text); out['episode']=(m.group(1) or m.group(2)) if m else None
     m=SEASON_RE.search(text); out['season']=m.group(1) if m else None
     m=RES_RE.search(text)
-    if m: out['quality']=(m.group(1) or m.group(2)) + ('p' if m.group(1) or m.group(2) else '')
+    if m: out['quality'] = f'{m.group(1)}p' if m.group(1) else f'{m.group(3)}p'
     else: out['quality']=None
     m=YEAR_RE.search(text); out['year']=m.group(1) if m else None
     low=text.lower(); out['language']=next((x for x in LANGS if x.lower() in low), None)

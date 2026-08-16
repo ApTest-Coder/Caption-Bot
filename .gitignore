@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.session
+*.session-journal
+*.db
+*.sqlite
+*.sqlite3
+nohup.out
+logs/
+.env
+.venv/
+venv/
+data/*
+!data/.gitkeep
+assets/*.jpg
+assets/*.jpeg
+assets/*.png

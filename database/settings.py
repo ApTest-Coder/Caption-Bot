@@ -35,6 +35,19 @@ def default_settings() -> dict:
     return copy.deepcopy(DEFAULT_SETTINGS)
 
 
+async def _ensure_sqlite_column(
+    db: aiosqlite.Connection,
+    table: str,
+    column: str,
+    definition: str,
+) -> None:
+    """Add a missing column to an existing SQLite installation."""
+    cursor = await db.execute(f"PRAGMA table_info({table})")
+    columns = {row[1] for row in await cursor.fetchall()}
+    if column not in columns:
+        await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
 class Database:
     """Small storage abstraction used by the bot entry point."""
 
@@ -89,6 +102,52 @@ class Database:
                 user_id INTEGER PRIMARY KEY
             );
             """
+        )
+
+        # Existing installations may have been created by an older schema.
+        # CREATE TABLE IF NOT EXISTS does not migrate those tables, so ensure
+        # every field used by the current code exists before serving requests.
+        await _ensure_sqlite_column(
+            self.sqlite,
+            "users",
+            "blocked",
+            "INTEGER DEFAULT 0",
+        )
+        await _ensure_sqlite_column(
+            self.sqlite,
+            "users",
+            "first_seen",
+            "TEXT",
+        )
+        await _ensure_sqlite_column(
+            self.sqlite,
+            "users",
+            "last_seen",
+            "TEXT",
+        )
+        await _ensure_sqlite_column(
+            self.sqlite,
+            "channels",
+            "owner_id",
+            "INTEGER DEFAULT 0",
+        )
+        await _ensure_sqlite_column(
+            self.sqlite,
+            "channels",
+            "title",
+            "TEXT",
+        )
+        await _ensure_sqlite_column(
+            self.sqlite,
+            "channels",
+            "username",
+            "TEXT",
+        )
+        await _ensure_sqlite_column(
+            self.sqlite,
+            "channels",
+            "config",
+            "TEXT",
         )
         await self.sqlite.commit()
 

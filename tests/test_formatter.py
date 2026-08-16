@@ -45,13 +45,13 @@ def test_season_with_no_separator_before_episode():
     assert result == "09"
 
 
-def test_resolution_token_is_not_treated_as_quality():
-    """A WxH token must use its width, not its height, as the quality value."""
+def test_resolution_token_uses_video_dimensions():
+    """A WxH token keeps resolution while quality follows the height."""
     result = format_caption(
         "Quality={quality}\nResolution={resolution}",
         message(filename="Show.S01E01.1920x1080.mkv"),
     )
-    assert result == "Quality=1920p\nResolution=1920x1080"
+    assert result == "Quality=1080p\nResolution=1920x1080"
 
 
 def test_episode_season_and_quality_fallbacks():

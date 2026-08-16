@@ -1,17 +1,28 @@
+# Python
 __pycache__/
 *.py[cod]
+
+# Telegram sessions
 *.session
 *.session-journal
+
+# Local databases / runtime data
 *.db
 *.sqlite
 *.sqlite3
 nohup.out
 logs/
-.env
-.venv/
-venv/
 data/*
 !data/.gitkeep
+
+# Local environments and secrets
+.env
+.env.*
+.venv/
+venv/
+config.py
+
+# Local media assets
 assets/*.jpg
 assets/*.jpeg
 assets/*.png

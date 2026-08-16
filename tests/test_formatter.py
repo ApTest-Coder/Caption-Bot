@@ -20,12 +20,13 @@ def message(filename="Anime.S02E07.1080p.Hindi.mkv", caption=""):
         document=None,
         photo=None,
         animation=None,
+        voice=None,
     )
 
 
 def test_dynamic_variables():
     result = format_caption(
-        "{filename} | {episode} | S{season} | {quality} | {audio} | {resolution}",
+        "{filename} | {episode} | S{season} | {quality} | {audio} | {resolution} | {duration}",
         message(),
     )
     assert "Anime.S02E07.1080p.Hindi.mkv" in result
@@ -34,6 +35,7 @@ def test_dynamic_variables():
     assert "1080p" in result
     assert "Hindi" in result
     assert "1920x1080" in result
+    assert "0:02:00" in result
 
 
 def test_episode_season_and_quality_fallbacks():
@@ -41,10 +43,11 @@ def test_episode_season_and_quality_fallbacks():
         "E={episode}\nS={season}\nQ={quality}\nA={audio}",
         message(filename="unknown_file.mkv"),
     )
-    assert "E01 - E0? (?)" in result
-    assert "S01 - S0? (?)" in result
+    assert "E01 - E0?" in result
+    assert "S01 - S0?" in result
     assert "Unknown Quality" in result
     assert "Audio" in result
+    assert "(?)" not in result
 
 
 def test_missing_optional_line_is_skipped():

@@ -238,7 +238,11 @@ async def report_error(bot: Bot, message: Message, error: Exception) -> None:
     """Send unexpected processing errors to the owner."""
     RUNTIME["failed"] += 1
     try:
-        await bot.send_message(OWNER_ID, _error_text(message, error), parse_mode="HTML")
+        await bot.send_message(
+            OWNER_ID,
+            _error_text(message, error),
+            parse_mode="HTML",
+        )
     except Exception:
         LOGGER.exception("Could not deliver owner error report")
 
@@ -277,32 +281,35 @@ def main_menu() -> InlineKeyboardMarkup:
 
 def channel_menu(rows: list[dict]) -> InlineKeyboardMarkup:
     """Build the connected-channel selector."""
-    keyboard = [
+    keyboard = []
+    for row in rows[:40]:
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=f"📢 {row.get('title', 'Channel')}",
+                    callback_data=f"ch:{row['channel_id']}",
+                    style=ButtonStyle.PRIMARY,
+                )
+            ]
+        )
+    keyboard.extend(
         [
-            InlineKeyboardButton(
-                text=f"📢 {row.get('title', 'Channel')}",
-                callback_data=f"ch:{row['channel_id']}",
-                style=ButtonStyle.PRIMARY,
-            )
+            [
+                InlineKeyboardButton(
+                    text="➕ Add New Channel",
+                    callback_data="add_channel",
+                    style=ButtonStyle.SUCCESS,
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="↩️ Back",
+                    callback_data="home",
+                    style=ButtonStyle.PRIMARY,
+                )
+            ],
         ]
-        for row in rows[:40]
-    ]
-    keyboard += [
-        [
-            InlineKeyboardButton(
-                text="➕ Add New Channel",
-                callback_data="add_channel",
-                style=ButtonStyle.SUCCESS,
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="↩️ Back",
-                callback_data="home",
-                style=ButtonStyle.PRIMARY,
-            )
-        ],
-    ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
@@ -402,7 +409,11 @@ async def start_command(message: Message) -> None:
                 parse_mode="HTML",
             )
     else:
-        await message.answer(text, reply_markup=main_menu(), parse_mode="HTML")
+        await message.answer(
+            text,
+            reply_markup=main_menu(),
+            parse_mode="HTML",
+        )
 
 
 @ROUTER.message(Command("help"))
@@ -698,7 +709,9 @@ async def private_input(message: Message) -> None:
             me = await message.bot.get_me()
             member = await message.bot.get_chat_member(channel_id, me.id)
             if member.status not in {"administrator", "creator"}:
-                await message.answer("❌ Bot must be an administrator in this channel.")
+                await message.answer(
+                    "❌ Bot must be an administrator in this channel."
+                )
                 return
 
             chat = await message.bot.get_chat(channel_id)
@@ -741,8 +754,14 @@ async def private_input(message: Message) -> None:
             settings["replacements"][parts[0].strip()] = parts[1].strip()
         elif kind == "buttons":
             parts = [item.strip() for item in text.split("|")]
-            if len(parts) != 3 or parts[2].lower() not in {"blue", "green", "red"}:
-                await message.answer("Use: Button Text | URL | blue/green/red")
+            if len(parts) != 3 or parts[2].lower() not in {
+                "blue",
+                "green",
+                "red",
+            }:
+                await message.answer(
+                    "Use: Button Text | URL | blue/green/red"
+                )
                 return
             if not valid_http_url(parts[1]):
                 await message.answer(
@@ -791,7 +810,9 @@ async def private_input(message: Message) -> None:
             reply_markup=settings_menu(channel_id, settings),
         )
     except (ValueError, TypeError):
-        await message.answer("❌ Invalid value. Please check the format and try again.")
+        await message.answer(
+            "❌ Invalid value. Please check the format and try again."
+        )
     except Exception as exc:
         await report_error(message.bot, message, exc)
 

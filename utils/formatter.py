@@ -1,15 +1,23 @@
 """Caption template rendering and dynamic variable expansion."""
+
 from __future__ import annotations
 
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from .parser import media_values, parse_filename
 
 TOKEN_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
+SPECIAL_FALLBACKS = {
+    "episode": "E01 - E0?",
+    "season": "S01 - S0?",
+    "quality": "Unknown Quality",
+    "audio": "Audio",
+}
 
 
 def human_size(value: int | float | None) -> str | None:
+    """Convert a byte count to a compact human-readable value."""
     if value is None:
         return None
     size = float(value)
@@ -22,13 +30,25 @@ def human_size(value: int | float | None) -> str | None:
 
 
 def human_duration(value: int | float | None) -> str | None:
+    """Convert seconds to a human-readable duration."""
     if value is None:
         return None
     return str(timedelta(seconds=int(value)))
 
 
 def strip_html(value: str) -> str:
+    """Remove HTML tags for the plain-text caption variable."""
     return re.sub(r"<[^>]+>", "", value)
+
+
+def _wish() -> str:
+    """Return a greeting based on the local process time."""
+    hour = datetime.now().hour
+    if hour < 12:
+        return "Good Morning"
+    if hour < 17:
+        return "Good Afternoon"
+    return "Good Evening"
 
 
 def format_caption(template: str, message) -> str:
@@ -56,17 +76,16 @@ def format_caption(template: str, message) -> str:
     values["duration"] = human_duration(values.get("duration"))
     values["wish"] = _wish()
 
-    # Explicit project fallbacks.
-    values["audio"] = values.get("audio") or "Audio"
-    values["episode"] = values.get("episode") or "E01 - E0?"
-    values["season"] = values.get("season") or "S01 - S0?"
-    values["quality"] = values.get("quality") or "Unknown Quality"
+    for key, fallback in SPECIAL_FALLBACKS.items():
+        values[key] = values.get(key) or fallback
 
-    special = {"episode", "season", "quality", "audio"}
     lines: list[str] = []
     for line in template.splitlines():
         tokens = TOKEN_RE.findall(line)
-        if tokens and any(token not in special and not values.get(token) for token in tokens):
+        if tokens and any(
+            token not in SPECIAL_FALLBACKS and not values.get(token)
+            for token in tokens
+        ):
             continue
         lines.append(line)
 
@@ -76,14 +95,3 @@ def format_caption(template: str, message) -> str:
 
     rendered = TOKEN_RE.sub(replace, "\n".join(lines))
     return "\n".join(line.rstrip() for line in rendered.splitlines()).strip()
-
-
-def _wish() -> str:
-    from datetime import datetime
-
-    hour = datetime.now().hour
-    if hour < 12:
-        return "Good Morning"
-    if hour < 17:
-        return "Good Afternoon"
-    return "Good Evening"

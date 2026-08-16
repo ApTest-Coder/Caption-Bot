@@ -2,6 +2,5 @@ aiogram>=3.30,<4
 motor>=3.7.1
 pymongo>=4.15
 aiosqlite>=0.21
-TgCrypto>=1.2.5
 pytest>=8.0
 ruff>=0.12

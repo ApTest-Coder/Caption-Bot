@@ -51,10 +51,11 @@ def parse_filename(name: str) -> dict[str, str | None]:
 
     match = RES_RE.search(text)
     if match:
-        if match.group(1):
-            result["quality"] = f"{match.group(1)}p"
-        else:
-            result["quality"] = f"{match.group(2)}p"
+        result["quality"] = (
+            f"{match.group(1)}p"
+            if match.group(1)
+            else f"{match.group(3)}p"
+        )
 
     match = YEAR_RE.search(text)
     if match:

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import timedelta
 
 from .parser import media_values, parse_filename
 
@@ -10,7 +10,6 @@ TOKEN_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
 
 
 def human_size(value: int | float | None) -> str | None:
-    """Return a human-readable file size."""
     if value is None:
         return None
     size = float(value)
@@ -22,12 +21,18 @@ def human_size(value: int | float | None) -> str | None:
     return f"{size:.2f} {units[index]}"
 
 
-def format_caption(template: str, message) -> str:
-    """Render a caption template without failing on missing metadata.
+def human_duration(value: int | float | None) -> str | None:
+    if value is None:
+        return None
+    return str(timedelta(seconds=int(value)))
 
-    Episode, season, quality and audio have explicit fallbacks. Other missing
-    variables remove the complete line containing that variable.
-    """
+
+def strip_html(value: str) -> str:
+    return re.sub(r"<[^>]+>", "", value)
+
+
+def format_caption(template: str, message) -> str:
+    """Render a caption while safely handling unavailable media metadata."""
     original = message.caption or message.text or ""
     values = media_values(message)
     filename = values.get("filename") or ""
@@ -39,7 +44,7 @@ def format_caption(template: str, message) -> str:
             parsed[key] = caption_parsed.get(key)
     values.update(parsed)
 
-    values["caption"] = re.sub(r"<[^>]+>", "", original)
+    values["caption"] = strip_html(original)
     values["html_caption"] = original
     values["ext"] = filename.rsplit(".", 1)[-1] if "." in filename else None
     values["resolution"] = (
@@ -48,22 +53,20 @@ def format_caption(template: str, message) -> str:
         else None
     )
     values["filesize"] = human_size(values.get("filesize"))
-    values["wish"] = wish()
+    values["duration"] = human_duration(values.get("duration"))
+    values["wish"] = _wish()
 
-    # Explicit fallbacks requested by the project specification.
+    # Explicit project fallbacks.
     values["audio"] = values.get("audio") or "Audio"
     values["episode"] = values.get("episode") or "E01 - E0?"
     values["season"] = values.get("season") or "S01 - S0?"
     values["quality"] = values.get("quality") or "Unknown Quality"
 
-    # Unknown/non-special variables cause their whole line to be skipped.
     special = {"episode", "season", "quality", "audio"}
     lines: list[str] = []
     for line in template.splitlines():
         tokens = TOKEN_RE.findall(line)
-        if tokens and any(
-            token not in special and not values.get(token) for token in tokens
-        ):
+        if tokens and any(token not in special and not values.get(token) for token in tokens):
             continue
         lines.append(line)
 
@@ -75,8 +78,9 @@ def format_caption(template: str, message) -> str:
     return "\n".join(line.rstrip() for line in rendered.splitlines()).strip()
 
 
-def wish() -> str:
-    """Return a simple local-time greeting."""
+def _wish() -> str:
+    from datetime import datetime
+
     hour = datetime.now().hour
     if hour < 12:
         return "Good Morning"

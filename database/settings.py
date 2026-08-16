@@ -133,7 +133,7 @@ class Database:
         await self.sqlite.execute(
             "INSERT INTO channels(channel_id,owner_id,title,username,config) VALUES(?,?,?,?,?) "
             "ON CONFLICT(channel_id) DO UPDATE SET owner_id=excluded.owner_id,title=excluded.title,username=excluded.username,config=excluded.config",
-            (channel_id, owner_id, title, username, config),
+            (owner_id, channel_id, title, username, config),
         )
         await self.sqlite.commit()
 
@@ -160,6 +160,14 @@ class Database:
             await self.db.channels.delete_one({"channel_id": channel_id, "owner_id": owner_id})
             return
         await self.sqlite.execute("DELETE FROM channels WHERE channel_id=? AND owner_id=?", (channel_id, owner_id))
+        await self.sqlite.commit()
+
+    async def mark_blocked(self, user_id: int) -> None:
+        """Flag a user as having blocked the bot so broadcasts skip them."""
+        if self.db is not None:
+            await self.db.users.update_one({"user_id": user_id}, {"$set": {"blocked": True}})
+            return
+        await self.sqlite.execute("UPDATE users SET blocked=1 WHERE user_id=?", (user_id,))
         await self.sqlite.commit()
 
     async def user_ids(self) -> list[int]:

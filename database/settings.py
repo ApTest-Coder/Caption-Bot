@@ -6,9 +6,6 @@ import copy
 import os
 from datetime import UTC, datetime
 
-import aiosqlite
-from motor.motor_asyncio import AsyncIOMotorClient
-
 from config import (
     DATABASE_NAME,
     DATABASE_TYPE,
@@ -16,6 +13,9 @@ from config import (
     OWNER_ID,
     SQLITE_DATABASE,
 )
+from motor.motor_asyncio import AsyncIOMotorClient
+
+import aiosqlite
 
 DEFAULT_SETTINGS = {
     "caption": "",
@@ -220,10 +220,7 @@ class Database:
             query = {} if owner_id is None else {"owner_id": owner_id}
             return await self.db.channels.find(query).to_list(1000)
 
-        query = (
-            "SELECT channel_id,owner_id,title,username,config "
-            "FROM channels"
-        )
+        query = "SELECT channel_id,owner_id,title,username,config FROM channels"
         args: tuple = ()
         if owner_id is not None:
             query += " WHERE owner_id=?"

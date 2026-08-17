@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta
+from html import escape
 
 from .parser import media_values, parse_filename
 
@@ -51,6 +52,11 @@ def _wish() -> str:
     return "Good Evening"
 
 
+def _escape_dynamic(value: object) -> str:
+    """Escape dynamic metadata before it is inserted into Telegram HTML."""
+    return escape(str(value), quote=False)
+
+
 def format_caption(template: str, message) -> str:
     """Render a caption while safely handling unavailable media metadata."""
     original = message.caption or message.text or ""
@@ -90,8 +96,13 @@ def format_caption(template: str, message) -> str:
         lines.append(line)
 
     def replace(match: re.Match[str]) -> str:
-        value = values.get(match.group(1))
-        return str(value) if value is not None else ""
+        key = match.group(1)
+        value = values.get(key)
+        if value is None:
+            return ""
+        if key == "html_caption":
+            return str(value)
+        return _escape_dynamic(value)
 
     rendered = TOKEN_RE.sub(replace, "\n".join(lines))
     return "\n".join(line.rstrip() for line in rendered.splitlines()).strip()

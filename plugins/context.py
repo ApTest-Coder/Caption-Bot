@@ -84,12 +84,17 @@ def _safe_settings(stored: object) -> dict:
         destination = forward.get("destination")
         if isinstance(enabled, bool):
             base["forward"]["enabled"] = enabled
-        if isinstance(destination, int):
+        if isinstance(destination, int) and destination != 0:
             base["forward"]["destination"] = destination
 
     stickers = stored.get("stickers")
-    if isinstance(stickers, dict) and isinstance(stickers.get("enabled"), bool):
-        base["stickers"]["enabled"] = stickers["enabled"]
+    if isinstance(stickers, dict):
+        enabled = stickers.get("enabled")
+        file_id = stickers.get("file_id")
+        if isinstance(enabled, bool):
+            base["stickers"]["enabled"] = enabled
+        if isinstance(file_id, str) and file_id.strip():
+            base["stickers"]["file_id"] = file_id.strip()
 
     for key in ("caption", "prefix", "suffix"):
         value = stored.get(key)

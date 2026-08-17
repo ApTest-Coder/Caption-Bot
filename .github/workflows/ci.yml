@@ -17,9 +17,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Prepare local config for CI
-        run: cp example_config.py config.py
-
       - name: Install dependencies
         run: python -m pip install --upgrade pip && pip install -r requirements.txt
 

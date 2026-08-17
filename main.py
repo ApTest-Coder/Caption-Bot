@@ -19,6 +19,7 @@ from plugins.callbacks import router as callback_router
 from plugins.caption import router as caption_router
 from plugins.channels import router as channels_router
 from plugins.context import DB
+from plugins.help import router as help_router
 from plugins.start import router as start_router
 from plugins.status import router as status_router
 from plugins.users import router as users_router
@@ -31,6 +32,7 @@ def build_dispatcher() -> Dispatcher:
     """Create the dispatcher and register feature routers."""
     dispatcher = Dispatcher()
     dispatcher.include_router(start_router)
+    dispatcher.include_router(help_router)
     dispatcher.include_router(about_router)
     dispatcher.include_router(status_router)
     dispatcher.include_router(admin_router)

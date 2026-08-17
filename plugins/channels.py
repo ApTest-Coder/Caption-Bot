@@ -13,7 +13,6 @@ from .buttons import normalize_button, validate_button
 from .context import (
     DB,
     STATES,
-    VALID_FILTERS,
     channel_menu,
     merged_config,
     public_access,

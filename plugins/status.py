@@ -4,6 +4,7 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
+from .callbacks import edit_ui_message
 from .context import DB, RUNTIME, main_menu, public_access, public_access_cb, uptime_text
 
 router = Router()
@@ -35,9 +36,9 @@ async def stats_callback(query) -> None:
     """Show statistics from the main menu."""
     if not await public_access_cb(query):
         return
-    await query.message.edit_text(
+    await edit_ui_message(
+        query.message,
         status_text(await DB.counts()),
-        parse_mode="HTML",
-        reply_markup=main_menu(),
+        main_menu(),
     )
     await query.answer()

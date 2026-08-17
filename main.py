@@ -32,11 +32,11 @@ def build_dispatcher() -> Dispatcher:
     dispatcher = Dispatcher()
     dispatcher.include_router(start_router)
     dispatcher.include_router(about_router)
-    dispatcher.include_router(channels_router)
     dispatcher.include_router(status_router)
     dispatcher.include_router(admin_router)
     dispatcher.include_router(broadcast_router)
     dispatcher.include_router(users_router)
+    dispatcher.include_router(channels_router)
     dispatcher.include_router(callback_router)
     dispatcher.include_router(caption_router)
     return dispatcher

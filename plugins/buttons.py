@@ -1,12 +1,12 @@
 """Button validation and rendering helpers."""
 
-COLORS = ("blue", "green", "red")
+from .context import valid_http_url
 
-from .context import button_style, valid_http_url
+COLORS = ("blue", "green", "red")
 
 
 def validate_button(text: str, url: str, color: str) -> tuple[bool, str]:
-    """Validate a user-created URL button and return an error if invalid."""
+    """Validate a user-created URL button."""
     if not text.strip():
         return False, "Button text cannot be empty."
     if not valid_http_url(url):

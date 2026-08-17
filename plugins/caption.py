@@ -76,7 +76,7 @@ def build_markup(buttons: list[dict]) -> InlineKeyboardMarkup | None:
 
 
 def supports_caption_edit(message) -> bool:
-    """Return whether the message media type supports caption editing."""
+    """Return whether the Telegram media type supports caption editing."""
     return any(
         (
             message.video,
@@ -84,7 +84,6 @@ def supports_caption_edit(message) -> bool:
             message.document,
             message.photo,
             message.animation,
-            message.voice,
         )
     )
 

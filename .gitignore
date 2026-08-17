@@ -15,12 +15,13 @@ logs/
 data/*
 !data/.gitkeep
 
-# Local environments and secrets
+# Local environments and deployment-only overrides
 .env
 .env.*
 .venv/
 venv/
-config.py
+config.local.py
+config.secret.py
 
 # Local media assets
 assets/*.jpg

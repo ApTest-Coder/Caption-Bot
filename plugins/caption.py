@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 
 from aiogram import Router
-from aiogram.enums import ButtonStyle
 from aiogram.exceptions import TelegramRetryAfter
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 

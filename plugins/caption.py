@@ -105,9 +105,7 @@ def media_details_caption(message) -> str:
     if duration:
         parts.append(f"• Duration: {escape(duration)}")
     if width and height:
-        parts.append(
-            f"• Resolution: {escape(str(width))}x{escape(str(height))}"
-        )
+        parts.append(f"• Resolution: {escape(str(width))}x{escape(str(height))}")
     if mime_type:
         parts.append(f"• MIME: {escape(str(mime_type))}")
     if not parts:
@@ -117,6 +115,11 @@ def media_details_caption(message) -> str:
         + "\n".join(parts)
         + "</blockquote>"
     )
+
+
+def safe_plain_text(value: str) -> str:
+    """Escape user-entered caption fragments before Telegram HTML parsing."""
+    return escape(value, quote=False)
 
 
 @router.channel_post()
@@ -137,19 +140,13 @@ async def process_channel_post(message) -> None:
             else (message.caption or "")
         )
         for old, new in settings["replacements"].items():
-            caption = caption.replace(old, new)
+            caption = caption.replace(old, safe_plain_text(new))
         if settings["prefix"]:
-            caption = (
-                f"{settings['prefix']}\n{caption}"
-                if caption
-                else settings["prefix"]
-            )
+            prefix = safe_plain_text(settings["prefix"])
+            caption = f"{prefix}\n{caption}" if caption else prefix
         if settings["suffix"]:
-            caption = (
-                f"{caption}\n{settings['suffix']}"
-                if caption
-                else settings["suffix"]
-            )
+            suffix = safe_plain_text(settings["suffix"])
+            caption = f"{caption}\n{suffix}" if caption else suffix
         if settings["media_details"]:
             details = media_details_caption(message)
             if details:

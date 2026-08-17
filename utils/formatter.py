@@ -16,6 +16,14 @@ SPECIAL_FALLBACKS = {
     "audio": "Audio",
 }
 
+# Only remove actual Telegram/HTML markup from the plain caption variable.
+# Angle-bracket text such as "<Jerry>" must remain normal user content.
+HTML_TAG_RE = re.compile(
+    r"</?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|blockquote|tg-spoiler)"
+    r"(?:\s[^>]*)?>",
+    re.IGNORECASE,
+)
+
 
 def human_size(value: int | float | None) -> str | None:
     """Convert a byte count to a compact human-readable value."""
@@ -38,8 +46,8 @@ def human_duration(value: int | float | None) -> str | None:
 
 
 def strip_html(value: str) -> str:
-    """Remove HTML tags for the plain-text caption variable."""
-    return re.sub(r"<[^>]+>", "", value)
+    """Remove supported Telegram HTML tags without destroying plain text."""
+    return HTML_TAG_RE.sub("", value)
 
 
 def _wish() -> str:

@@ -51,5 +51,8 @@ def test_dispatcher_registers_feature_routers():
     """The entry point must actually register every handler router."""
     main = import_module("main")
     dispatcher = main.build_dispatcher()
-    handler_count = sum(len(router.message.handlers) + len(router.callback_query.handlers) for router in dispatcher.sub_routers)
+    handler_count = sum(
+        len(router.message.handlers) + len(router.callback_query.handlers)
+        for router in dispatcher.sub_routers
+    )
     assert handler_count >= 20

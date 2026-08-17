@@ -24,8 +24,8 @@ from .forward import copy_with_retry
 router = Router()
 
 
-async def edit_caption(bot, message, caption: str, markup) -> None:
-    """Edit a post caption with bounded FloodWait retry."""
+async def edit_caption(bot, message, caption: str) -> None:
+    """Edit a caption with bounded FloodWait retry."""
     for attempt in range(2):
         try:
             await bot.edit_message_caption(
@@ -33,6 +33,21 @@ async def edit_caption(bot, message, caption: str, markup) -> None:
                 message_id=message.message_id,
                 caption=caption or None,
                 parse_mode="HTML",
+            )
+            return
+        except TelegramRetryAfter as exc:
+            if attempt:
+                raise
+            await asyncio.sleep(exc.retry_after)
+
+
+async def edit_markup(bot, message, markup: InlineKeyboardMarkup) -> None:
+    """Edit only the reply markup, which also works for stickers."""
+    for attempt in range(2):
+        try:
+            await bot.edit_message_reply_markup(
+                chat_id=message.chat.id,
+                message_id=message.message_id,
                 reply_markup=markup,
             )
             return
@@ -60,6 +75,20 @@ def build_markup(buttons: list[dict]) -> InlineKeyboardMarkup | None:
     )
 
 
+def supports_caption_edit(message) -> bool:
+    """Return whether the message media type supports caption editing."""
+    return any(
+        (
+            message.video,
+            message.audio,
+            message.document,
+            message.photo,
+            message.animation,
+            message.voice,
+        )
+    )
+
+
 @router.channel_post()
 async def process_channel_post(message) -> None:
     """Apply the selected channel's caption and button configuration."""
@@ -80,13 +109,29 @@ async def process_channel_post(message) -> None:
         for old, new in settings["replacements"].items():
             caption = caption.replace(old, new)
         if settings["prefix"]:
-            caption = f"{settings['prefix']}\n{caption}" if caption else settings["prefix"]
+            caption = (
+                f"{settings['prefix']}\n{caption}"
+                if caption
+                else settings["prefix"]
+            )
         if settings["suffix"]:
-            caption = f"{caption}\n{settings['suffix']}" if caption else settings["suffix"]
+            caption = (
+                f"{caption}\n{settings['suffix']}"
+                if caption
+                else settings["suffix"]
+            )
 
         markup = build_markup(settings["buttons"])
-        if caption != (message.caption or "") or markup:
-            await edit_caption(message.bot, message, caption, markup)
+        original_caption = message.caption or ""
+        if supports_caption_edit(message):
+            if caption != original_caption:
+                await edit_caption(message.bot, message, caption)
+                RUNTIME["edited"] += 1
+            if markup:
+                await edit_markup(message.bot, message, markup)
+                RUNTIME["edited"] += 1
+        elif markup:
+            await edit_markup(message.bot, message, markup)
             RUNTIME["edited"] += 1
 
         forward = settings["forward"]

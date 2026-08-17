@@ -58,8 +58,18 @@ def test_settings_are_sanitized_before_ui_use():
     ]
     assert settings["forward"] == {"enabled": False, "destination": None}
     assert settings["filters"] == {}
-    assert settings["stickers"] == {"enabled": False}
+    assert settings["stickers"] == {"enabled": False, "file_id": None}
     assert settings["media_details"] is False
+
+
+def test_sticker_file_id_survives_settings_sanitization():
+    settings = _safe_settings(
+        {"stickers": {"enabled": True, "file_id": "CAAC_TEST"}}
+    )
+    assert settings["stickers"] == {
+        "enabled": True,
+        "file_id": "CAAC_TEST",
+    }
 
 
 def test_url_validation():
@@ -77,8 +87,6 @@ def test_caption_media_capability():
         document=None,
         photo=None,
         animation=None,
-        voice=None,
-        sticker=None,
     )
     sticker = SimpleNamespace(
         video=None,
@@ -86,7 +94,6 @@ def test_caption_media_capability():
         document=None,
         photo=None,
         animation=None,
-        voice=None,
         sticker=object(),
     )
     assert supports_caption_edit(video) is True

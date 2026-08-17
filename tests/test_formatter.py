@@ -99,3 +99,12 @@ def test_photo_metadata_uses_largest_photo_size():
         msg,
     )
     assert result == "2.00 KB | 1920x1080 | image/jpeg"
+
+
+def test_dynamic_metadata_is_html_escaped():
+    result = format_caption(
+        "<b>{filename}</b>\n<blockquote>{caption}</blockquote>",
+        message(filename="A&B <test>.mkv", caption="Tom & <Jerry>"),
+    )
+    assert "A&amp;B &lt;test&gt;.mkv" in result
+    assert "Tom &amp; &lt;Jerry&gt;" in result

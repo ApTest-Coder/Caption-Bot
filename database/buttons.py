@@ -31,7 +31,12 @@ async def get(db: Database, channel_id: int) -> list[dict[str, Any]]:
     return load(row.get("config"))
 
 
-async def replace(db: Database, owner_id: int, channel_id: int, buttons: list[dict[str, Any]]) -> None:
+async def replace(
+    db: Database,
+    owner_id: int,
+    channel_id: int,
+    buttons: list[dict[str, Any]],
+) -> None:
     """Replace the complete button list while preserving other settings."""
     row = await db.get_channel(channel_id)
     if not row or row.get("owner_id") != owner_id:

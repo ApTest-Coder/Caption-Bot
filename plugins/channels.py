@@ -17,7 +17,6 @@ from .context import (
     merged_config,
     public_access,
     public_access_cb,
-    report_error,
     settings_menu,
 )
 from .filters import validate_filter
@@ -114,8 +113,7 @@ async def private_input(message: Message) -> None:
                 raw_id = (message.text or "").strip()
                 if not raw_id or not raw_id.lstrip("-").isdigit():
                     await message.answer(
-                        "❌ Send a numeric Channel ID or forward a message "
-                        "directly from a channel."
+                        "❌ Send a numeric Channel ID or forward a message directly from a channel."
                     )
                     return
                 channel_id = int(raw_id)
@@ -198,16 +196,21 @@ async def private_input(message: Message) -> None:
             if destination is None:
                 await message.answer("❌ Channel ID numeric hona chahiye.")
                 return
-            settings["forward"] = {
-                "enabled": True,
-                "destination": destination,
-            }
+            settings["forward"] = {"enabled": True, "destination": destination}
         elif kind == "filters":
             valid, reason = validate_filter(text)
             if not valid:
                 await message.answer(f"❌ {reason}")
                 return
             settings["filters"] = {"type": text.lower().strip()}
+        elif kind == "stickers":
+            if not message.sticker:
+                await message.answer("❌ Please send a Telegram sticker.")
+                return
+            settings["stickers"] = {
+                "enabled": True,
+                "file_id": message.sticker.file_id,
+            }
         else:
             STATES.pop(message.from_user.id, None)
             await message.answer("❌ Unknown configuration request. Try again.")
@@ -232,4 +235,6 @@ async def private_input(message: Message) -> None:
         )
     except Exception as exc:
         STATES.pop(message.from_user.id, None)
+        from .context import report_error
+
         await report_error(message.bot, message, exc)

@@ -1,5 +1,7 @@
 """Shared callback actions for navigation and channel settings."""
 
+from __future__ import annotations
+
 import json
 
 from aiogram import F, Router
@@ -10,15 +12,40 @@ from .context import DB, STATES, main_menu, merged_config, public_access_cb, set
 router = Router()
 
 
+async def edit_ui_message(message, text: str, reply_markup=None) -> None:
+    """Edit either a normal text message or a media-caption message safely."""
+    if any(
+        (
+            message.photo,
+            message.video,
+            message.audio,
+            message.document,
+            message.animation,
+            message.voice,
+        )
+    ):
+        await message.edit_caption(
+            caption=text,
+            parse_mode="HTML",
+            reply_markup=reply_markup,
+        )
+        return
+    await message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=reply_markup,
+    )
+
+
 @router.callback_query(F.data == "home")
 async def home(query) -> None:
     """Return to the main menu."""
     if not await public_access_cb(query):
         return
-    await query.message.edit_text(
+    await edit_ui_message(
+        query.message,
         "🤖 <b>Auto Caption Bot</b>",
-        parse_mode="HTML",
-        reply_markup=main_menu(),
+        main_menu(),
     )
     await query.answer()
 
@@ -28,9 +55,10 @@ async def help_menu(query) -> None:
     """Show help from the inline menu."""
     if not await public_access_cb(query):
         return
-    await query.message.edit_text(
-        "Use /channels to manage channels.",
-        reply_markup=main_menu(),
+    await edit_ui_message(
+        query.message,
+        "Use /channels to add and configure channels.",
+        main_menu(),
     )
     await query.answer()
 
@@ -40,9 +68,10 @@ async def settings_menu_callback(query) -> None:
     """Open the settings entry point."""
     if not await public_access_cb(query):
         return
-    await query.message.edit_text(
+    await edit_ui_message(
+        query.message,
         "⚙️ Select a channel from /channels.",
-        reply_markup=main_menu(),
+        main_menu(),
     )
     await query.answer()
 
@@ -93,10 +122,15 @@ async def setting_callback(query) -> None:
         return
 
     await DB.save_channel(
-        row["owner_id"], channel_id, row["title"], row.get("username", ""),
-        json.dumps(settings),
+        row["owner_id"],
+        channel_id,
+        row["title"],
+        row.get("username", ""),
+        json.dumps(settings, ensure_ascii=False),
     )
-    await query.message.edit_reply_markup(reply_markup=settings_menu(channel_id, settings))
+    await query.message.edit_reply_markup(
+        reply_markup=settings_menu(channel_id, settings)
+    )
     await query.answer()
 
 

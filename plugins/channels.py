@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from html import escape
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -83,11 +84,13 @@ async def channel_callback(query) -> None:
     if not row or row["owner_id"] != query.from_user.id:
         await query.answer("Not your channel.", show_alert=True)
         return
+    title = escape(str(row.get("title") or "Channel"), quote=False)
+    username = escape(str(row.get("username") or "private"), quote=False)
     await edit_ui_message(
         query.message,
-        f"📄 <b>{row['title']}</b>\n"
+        f"📄 <b>{title}</b>\n"
         f"🆔 <code>{channel_id}</code>\n"
-        f"🔗 @{row.get('username') or 'private'}",
+        f"🔗 @{username}",
         settings_menu(channel_id, merged_config(row)),
     )
     await query.answer()
@@ -149,7 +152,7 @@ async def private_input(message: Message) -> None:
             )
             STATES.pop(message.from_user.id, None)
             await message.answer(
-                f"✅ <b>{chat.title}</b> added.",
+                f"✅ <b>{escape(str(chat.title or 'Channel'), quote=False)}</b> added.",
                 parse_mode="HTML",
                 reply_markup=settings_menu(channel_id, settings),
             )

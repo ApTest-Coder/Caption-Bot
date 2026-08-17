@@ -139,7 +139,9 @@ def has_media(message: Message) -> bool:
 
 def media_matches_filter(message: Message, filters: dict) -> bool:
     """Check a channel's optional media-type filter."""
-    media_type = str(filters.get("type") or "").strip().lower() if isinstance(filters, dict) else ""
+    if not isinstance(filters, dict):
+        return True
+    media_type = str(filters.get("type") or "").strip().lower()
     if not media_type:
         return True
     return bool(
@@ -356,17 +358,13 @@ async def public_access_cb(query) -> bool:
     if allowed:
         return True
     if keyboard:
-        await query.message.answer(
-            "🔒 <b>Join Required</b>\n\nPlease join our channel to use this bot.",
-            reply_markup=keyboard,
-            parse_mode="HTML",
-        )
-    else:
-        await query.answer(
-            "⚠️ Force-subscribe is temporarily unavailable."
-            ,
-            show_alert=True,
-        )
+        await send_gate(query.message)
+        await query.answer()
+        return False
+    await query.answer(
+        "⚠️ Force-subscribe is temporarily unavailable.",
+        show_alert=True,
+    )
     return False
 
 

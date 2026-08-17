@@ -12,6 +12,7 @@ import logging
 from aiogram import Bot, Dispatcher
 
 from config import BOT_TOKEN
+from plugins.about import router as about_router
 from plugins.admin import router as admin_router
 from plugins.broadcast import router as broadcast_router
 from plugins.callbacks import router as callback_router
@@ -27,9 +28,10 @@ LOGGER = logging.getLogger("caption_bot")
 
 
 def build_dispatcher() -> Dispatcher:
-    """Create the dispatcher and register feature routers in a stable order."""
+    """Create the dispatcher and register feature routers."""
     dispatcher = Dispatcher()
     dispatcher.include_router(start_router)
+    dispatcher.include_router(about_router)
     dispatcher.include_router(channels_router)
     dispatcher.include_router(status_router)
     dispatcher.include_router(admin_router)

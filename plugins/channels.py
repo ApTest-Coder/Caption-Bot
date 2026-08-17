@@ -9,6 +9,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from database.settings import default_settings
+from .buttons import normalize_button, validate_button
 from .context import (
     DB,
     STATES,
@@ -18,8 +19,10 @@ from .context import (
     public_access,
     public_access_cb,
     settings_menu,
-    valid_http_url,
 )
+from .filters import validate_filter
+from .forward import parse_destination
+from .replace import validate_rule
 
 router = Router()
 
@@ -103,6 +106,7 @@ async def private_input(message: Message) -> None:
     state = STATES.get(message.from_user.id)
     if not state:
         return
+
     try:
         if state["type"] == "channel":
             origin = getattr(getattr(message, "forward_origin", None), "chat", None)
@@ -162,47 +166,65 @@ async def private_input(message: Message) -> None:
             settings[kind] = text
         elif kind == "replace":
             parts = text.split("|", 1)
-            if len(parts) != 2 or not parts[0].strip():
+            if len(parts) != 2:
                 await message.answer("Use: old text | new text")
+                return
+            valid, reason = validate_rule(parts[0], parts[1])
+            if not valid:
+                await message.answer(f"❌ {reason}")
                 return
             settings["replacements"][parts[0].strip()] = parts[1].strip()
         elif kind == "buttons":
             parts = [item.strip() for item in text.split("|")]
-            if len(parts) != 3 or parts[2].lower() not in {"blue", "green", "red"}:
+            if len(parts) != 3:
                 await message.answer("Use: Button Text | URL | blue/green/red")
                 return
-            if not valid_http_url(parts[1]):
-                await message.answer("❌ Button URL must start with http:// or https://")
+            valid, reason = validate_button(parts[0], parts[1], parts[2])
+            if not valid:
+                await message.answer(f"❌ {reason}")
                 return
             settings["buttons"].append(
-                {"text": parts[0], "url": parts[1], "color": parts[2].lower()}
+                normalize_button(parts[0], parts[1], parts[2])
             )
         elif kind == "forward":
-            if not text.lstrip("-").isdigit():
+            destination = parse_destination(text)
+            if destination is None:
                 await message.answer("❌ Channel ID numeric hona chahiye.")
                 return
-            settings["forward"] = {"enabled": True, "destination": int(text)}
+            settings["forward"] = {
+                "enabled": True,
+                "destination": destination,
+            }
         elif kind == "filters":
-            filter_type = text.lower()
-            if filter_type not in VALID_FILTERS:
-                await message.answer(
-                    "❌ Valid: video/audio/document/photo/animation/voice/sticker"
-                )
+            valid, reason = validate_filter(text)
+            if not valid:
+                await message.answer(f"❌ {reason}")
                 return
-            settings["filters"] = {"type": filter_type}
+            settings["filters"] = {"type": text.lower().strip()}
         else:
             STATES.pop(message.from_user.id, None)
             await message.answer("❌ Unknown configuration request. Try again.")
             return
 
         await DB.save_channel(
-            row["owner_id"], channel_id, row["title"], row.get("username", ""),
-            json.dumps(settings),
+            row["owner_id"],
+            channel_id,
+            row["title"],
+            row.get("username", ""),
+            json.dumps(settings, ensure_ascii=False),
         )
         STATES.pop(message.from_user.id, None)
-        await message.answer("✅ Saved.", reply_markup=settings_menu(channel_id, settings))
+        await message.answer(
+            "✅ Saved.",
+            reply_markup=settings_menu(channel_id, settings),
+        )
     except (ValueError, TypeError):
-        await message.answer("❌ Invalid value. Please check the format and try again.")
+        STATES.pop(message.from_user.id, None)
+        await message.answer(
+            "❌ Invalid value. Please check the format and try again."
+        )
     except Exception as exc:
+        STATES.pop(message.from_user.id, None)
         from .context import report_error
+
         await report_error(message.bot, message, exc)

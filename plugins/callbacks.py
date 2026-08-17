@@ -103,8 +103,9 @@ async def setting_callback(query) -> None:
                 "type": "stickers",
                 "channel_id": channel_id,
             }
-            await query.message.edit_text(
-                "🎉 Send the sticker you want the bot to add after processed posts.\n\n/cancel"
+            await edit_ui_message(
+                query.message,
+                "🎉 Send the sticker you want the bot to add after processed posts.\n\n/cancel",
             )
             await query.answer()
             return
@@ -123,7 +124,7 @@ async def setting_callback(query) -> None:
             await query.answer("Unknown setting.", show_alert=True)
             return
         STATES[query.from_user.id] = {"type": kind, "channel_id": channel_id}
-        await query.message.edit_text(f"{prompt}\n\n/cancel")
+        await edit_ui_message(query.message, f"{prompt}\n\n/cancel")
         await query.answer()
         return
 
@@ -155,9 +156,10 @@ async def remove_channel(query) -> None:
         await query.answer("Not your channel.", show_alert=True)
         return
     await DB.delete_channel(channel_id, query.from_user.id)
-    await query.message.edit_text(
+    await edit_ui_message(
+        query.message,
         "🗑 Channel removed.",
-        reply_markup=InlineKeyboardMarkup(
+        InlineKeyboardMarkup(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(

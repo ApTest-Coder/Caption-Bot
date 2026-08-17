@@ -25,7 +25,7 @@ DEFAULT_SETTINGS = {
     "forward": {"enabled": False, "destination": None},
     "prefix": "",
     "suffix": "",
-    "stickers": {"enabled": False},
+    "stickers": {"enabled": False, "file_id": None},
     "media_details": False,
 }
 
@@ -49,7 +49,7 @@ async def _ensure_sqlite_column(
 
 
 class Database:
-    """Small storage abstraction used by the bot entry point."""
+    """Small storage abstraction used by the bot and plugin modules."""
 
     def __init__(self) -> None:
         self.mongo = None
@@ -103,56 +103,32 @@ class Database:
             );
             """
         )
-
-        # Existing installations may have been created by an older schema.
-        # CREATE TABLE IF NOT EXISTS does not migrate those tables, so ensure
-        # every field used by the current code exists before serving requests.
         await _ensure_sqlite_column(
-            self.sqlite,
-            "users",
-            "blocked",
-            "INTEGER DEFAULT 0",
+            self.sqlite, "users", "blocked", "INTEGER DEFAULT 0"
         )
+        await _ensure_sqlite_column(self.sqlite, "users", "first_seen", "TEXT")
+        await _ensure_sqlite_column(self.sqlite, "users", "last_seen", "TEXT")
         await _ensure_sqlite_column(
-            self.sqlite,
-            "users",
-            "first_seen",
-            "TEXT",
+            self.sqlite, "channels", "owner_id", "INTEGER DEFAULT 0"
         )
-        await _ensure_sqlite_column(
-            self.sqlite,
-            "users",
-            "last_seen",
-            "TEXT",
-        )
-        await _ensure_sqlite_column(
-            self.sqlite,
-            "channels",
-            "owner_id",
-            "INTEGER DEFAULT 0",
-        )
-        await _ensure_sqlite_column(
-            self.sqlite,
-            "channels",
-            "title",
-            "TEXT",
-        )
-        await _ensure_sqlite_column(
-            self.sqlite,
-            "channels",
-            "username",
-            "TEXT",
-        )
-        await _ensure_sqlite_column(
-            self.sqlite,
-            "channels",
-            "config",
-            "TEXT",
-        )
+        await _ensure_sqlite_column(self.sqlite, "channels", "title", "TEXT")
+        await _ensure_sqlite_column(self.sqlite, "channels", "username", "TEXT")
+        await _ensure_sqlite_column(self.sqlite, "channels", "config", "TEXT")
+        await self.sqlite.execute("UPDATE users SET blocked=0 WHERE blocked IS NULL")
         await self.sqlite.commit()
 
+    async def close(self) -> None:
+        """Close whichever database backend is currently connected."""
+        if self.sqlite is not None:
+            await self.sqlite.close()
+            self.sqlite = None
+        if self.mongo is not None:
+            self.mongo.close()
+            self.mongo = None
+        self.db = None
+
     async def user_upsert(self, user_id: int, username: str) -> None:
-        """Insert or refresh a tracked user."""
+        """Insert or refresh a tracked user and clear a stale block marker."""
         now = datetime.now(UTC).isoformat()
         if self.db is not None:
             await self.db.users.update_one(
@@ -161,26 +137,24 @@ class Database:
                     "$set": {
                         "username": username,
                         "last_seen": now,
-                    },
-                    "$setOnInsert": {
-                        "first_seen": now,
                         "blocked": False,
                     },
+                    "$setOnInsert": {"first_seen": now},
                 },
                 upsert=True,
             )
             return
 
         await self.sqlite.execute(
-            "INSERT INTO users(user_id,username,first_seen,last_seen) VALUES(?,?,?,?) "
-            "ON CONFLICT(user_id) DO UPDATE SET username=excluded.username, "
-            "last_seen=excluded.last_seen",
-            (user_id, username, now, now),
+            "INSERT INTO users(user_id,username,blocked,first_seen,last_seen) "
+            "VALUES(?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET "
+            "username=excluded.username, blocked=0, last_seen=excluded.last_seen",
+            (user_id, username, 0, now, now),
         )
         await self.sqlite.commit()
 
     async def is_admin(self, user_id: int) -> bool:
-        """Return whether a user is an owner or stored administrator."""
+        """Return whether a user is the owner or a stored administrator."""
         if user_id == OWNER_ID:
             return True
         if self.db is not None:
@@ -189,8 +163,7 @@ class Database:
             "SELECT 1 FROM admins WHERE user_id=?",
             (user_id,),
         )
-        row = await cursor.fetchone()
-        return row is not None
+        return await cursor.fetchone() is not None
 
     async def add_admin(self, user_id: int) -> None:
         """Add an administrator."""
@@ -228,7 +201,11 @@ class Database:
         username: str,
         config: str,
     ) -> None:
-        """Create or update a channel configuration."""
+        """Create or update a channel without allowing ownership takeover."""
+        existing = await self.get_channel(channel_id)
+        if existing and existing.get("owner_id") != owner_id:
+            raise PermissionError("Channel is already managed by another owner")
+
         if self.db is not None:
             await self.db.channels.update_one(
                 {"channel_id": channel_id},
@@ -247,8 +224,7 @@ class Database:
         await self.sqlite.execute(
             "INSERT INTO channels(channel_id,owner_id,title,username,config) "
             "VALUES(?,?,?,?,?) ON CONFLICT(channel_id) DO UPDATE SET "
-            "owner_id=excluded.owner_id,title=excluded.title,"
-            "username=excluded.username,config=excluded.config",
+            "title=excluded.title,username=excluded.username,config=excluded.config",
             (channel_id, owner_id, title, username, config),
         )
         await self.sqlite.commit()
@@ -311,7 +287,7 @@ class Database:
         await self.sqlite.commit()
 
     async def mark_blocked(self, user_id: int) -> None:
-        """Flag a user as having blocked the bot so broadcasts skip them."""
+        """Flag a user as blocked so broadcasts skip them."""
         if self.db is not None:
             await self.db.users.update_one(
                 {"user_id": user_id},

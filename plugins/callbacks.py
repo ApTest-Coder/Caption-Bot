@@ -21,7 +21,6 @@ async def edit_ui_message(message, text: str, reply_markup=None) -> None:
             message.audio,
             message.document,
             message.animation,
-            message.voice,
         )
     ):
         await message.edit_caption(
@@ -42,11 +41,7 @@ async def home(query) -> None:
     """Return to the main menu."""
     if not await public_access_cb(query):
         return
-    await edit_ui_message(
-        query.message,
-        "🤖 <b>Auto Caption Bot</b>",
-        main_menu(),
-    )
+    await edit_ui_message(query.message, "🤖 <b>Auto Caption Bot</b>", main_menu())
     await query.answer()
 
 
@@ -101,7 +96,18 @@ async def setting_callback(query) -> None:
     if kind == "media":
         settings["media_details"] = not settings["media_details"]
     elif kind == "stickers":
-        settings["stickers"]["enabled"] = not settings["stickers"]["enabled"]
+        if settings["stickers"].get("enabled"):
+            settings["stickers"]["enabled"] = False
+        else:
+            STATES[query.from_user.id] = {
+                "type": "stickers",
+                "channel_id": channel_id,
+            }
+            await query.message.edit_text(
+                "🎉 Send the sticker you want the bot to add after processed posts.\n\n/cancel"
+            )
+            await query.answer()
+            return
     else:
         prompts = {
             "caption": "📝 Send caption template.",

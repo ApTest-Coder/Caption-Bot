@@ -1,4 +1,4 @@
-"""Start and help entry points."""
+"""Start and settings entry points."""
 
 from aiogram import Router
 from aiogram.filters import Command, CommandStart
@@ -32,16 +32,6 @@ async def start(message: Message) -> None:
         except OSError:
             pass
     await message.answer(text, reply_markup=main_menu(), parse_mode="HTML")
-
-
-@router.message(Command("help"))
-async def help_command(message: Message) -> None:
-    """Show the public help entry point."""
-    if await public_access(message):
-        await message.answer(
-            "<b>Help</b>\n\nUse /channels to add and configure channels.",
-            parse_mode="HTML",
-        )
 
 
 @router.message(Command("settings"))

@@ -54,6 +54,7 @@ async def main() -> None:
     try:
         await dispatcher.start_polling(bot)
     finally:
+        await DB.close()
         await bot.session.close()
 
 

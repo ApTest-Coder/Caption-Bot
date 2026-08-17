@@ -5,12 +5,13 @@ from __future__ import annotations
 import json
 import logging
 import time
+from html import escape
 from urllib.parse import urlparse
 
 from aiogram.enums import ButtonStyle
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from config import ADMIN_USERNAME, OWNER_ID, PUBLIC_MODE
+from config import ADMIN_USERNAME, FSUB_LINK, OWNER_ID, PUBLIC_MODE
 from database.settings import Database, default_settings
 
 LOGGER = logging.getLogger("caption_bot")
@@ -19,7 +20,13 @@ RUNTIME = {"processed": 0, "edited": 0, "failed": 0}
 STATES: dict[int, dict] = {}
 STARTED_AT = time.monotonic()
 VALID_FILTERS = {
-    "video", "audio", "document", "photo", "animation", "voice", "sticker"
+    "video",
+    "audio",
+    "document",
+    "photo",
+    "animation",
+    "voice",
+    "sticker",
 }
 
 
@@ -41,20 +48,69 @@ def button_style(value: str | None) -> ButtonStyle:
     }.get((value or "blue").strip().lower(), ButtonStyle.PRIMARY)
 
 
-def merged_config(row: dict) -> dict:
-    """Merge persisted channel settings with current defaults."""
+def _safe_settings(stored: object) -> dict:
+    """Normalize persisted settings without letting corrupt data crash the UI."""
     base = default_settings()
+    if not isinstance(stored, dict):
+        return base
+
+    buttons = stored.get("buttons")
+    if isinstance(buttons, list):
+        base["buttons"] = [
+            item
+            for item in buttons
+            if isinstance(item, dict)
+            and isinstance(item.get("text"), str)
+            and isinstance(item.get("url"), str)
+        ]
+
+    replacements = stored.get("replacements")
+    if isinstance(replacements, dict):
+        base["replacements"] = {
+            str(old): str(new)
+            for old, new in replacements.items()
+            if str(old).strip()
+        }
+
+    filters = stored.get("filters")
+    if isinstance(filters, dict) and isinstance(filters.get("type"), str):
+        filter_type = filters["type"].strip().lower()
+        if filter_type in VALID_FILTERS:
+            base["filters"] = {"type": filter_type}
+
+    forward = stored.get("forward")
+    if isinstance(forward, dict):
+        enabled = forward.get("enabled")
+        destination = forward.get("destination")
+        if isinstance(enabled, bool):
+            base["forward"]["enabled"] = enabled
+        if isinstance(destination, int):
+            base["forward"]["destination"] = destination
+
+    stickers = stored.get("stickers")
+    if isinstance(stickers, dict) and isinstance(stickers.get("enabled"), bool):
+        base["stickers"]["enabled"] = stickers["enabled"]
+
+    for key in ("caption", "prefix", "suffix"):
+        value = stored.get(key)
+        if isinstance(value, str):
+            base[key] = value
+
+    media_details = stored.get("media_details")
+    if isinstance(media_details, bool):
+        base["media_details"] = media_details
+
+    return base
+
+
+def merged_config(row: dict) -> dict:
+    """Merge persisted channel settings with safe current defaults."""
     try:
         stored = json.loads(row.get("config") or "{}")
     except (TypeError, ValueError, json.JSONDecodeError):
         LOGGER.warning("Invalid settings JSON for channel %s", row.get("channel_id"))
-        return base
-    for key, value in stored.items():
-        if isinstance(value, dict) and isinstance(base.get(key), dict):
-            base[key].update(value)
-        else:
-            base[key] = value
-    return base
+        return default_settings()
+    return _safe_settings(stored)
 
 
 def uptime_text() -> str:
@@ -83,7 +139,7 @@ def has_media(message: Message) -> bool:
 
 def media_matches_filter(message: Message, filters: dict) -> bool:
     """Check a channel's optional media-type filter."""
-    media_type = str(filters.get("type") or "").lower().strip() if filters else ""
+    media_type = str(filters.get("type") or "").strip().lower() if isinstance(filters, dict) else ""
     if not media_type:
         return True
     return bool(
@@ -118,18 +174,26 @@ def main_menu() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="📺 Channels", callback_data="channels", style=ButtonStyle.PRIMARY
+                    text="📺 Channels",
+                    callback_data="channels",
+                    style=ButtonStyle.PRIMARY,
                 ),
                 InlineKeyboardButton(
-                    text="📊 Stats", callback_data="stats", style=ButtonStyle.SUCCESS
+                    text="📊 Stats",
+                    callback_data="stats",
+                    style=ButtonStyle.SUCCESS,
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    text="⚙️ Settings", callback_data="settings", style=ButtonStyle.PRIMARY
+                    text="⚙️ Settings",
+                    callback_data="settings",
+                    style=ButtonStyle.PRIMARY,
                 ),
                 InlineKeyboardButton(
-                    text="ℹ️ Help", callback_data="help", style=ButtonStyle.PRIMARY
+                    text="ℹ️ Help",
+                    callback_data="help",
+                    style=ButtonStyle.PRIMARY,
                 ),
             ],
         ]
@@ -159,7 +223,9 @@ def channel_menu(rows: list[dict]) -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
-                    text="↩️ Back", callback_data="home", style=ButtonStyle.PRIMARY
+                    text="↩️ Back",
+                    callback_data="home",
+                    style=ButtonStyle.PRIMARY,
                 )
             ],
         ]
@@ -169,6 +235,8 @@ def channel_menu(rows: list[dict]) -> InlineKeyboardMarkup:
 
 def settings_menu(channel_id: int, settings: dict) -> InlineKeyboardMarkup:
     """Build the per-channel settings panel."""
+    safe = _safe_settings(settings)
+
     def state(value: bool) -> str:
         return "ON ✅" if value else "OFF ❌"
 
@@ -176,56 +244,69 @@ def settings_menu(channel_id: int, settings: dict) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="📝 Caption", callback_data=f"set:caption:{channel_id}",
+                    text="📝 Caption",
+                    callback_data=f"set:caption:{channel_id}",
                     style=ButtonStyle.PRIMARY,
                 ),
                 InlineKeyboardButton(
-                    text=f"🔘 Buttons ({len(settings['buttons'])})",
-                    callback_data=f"set:buttons:{channel_id}", style=ButtonStyle.SUCCESS,
+                    text=f"🔘 Buttons ({len(safe['buttons'])})",
+                    callback_data=f"set:buttons:{channel_id}",
+                    style=ButtonStyle.SUCCESS,
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    text=f"🔄 Replace ({len(settings['replacements'])})",
-                    callback_data=f"set:replace:{channel_id}", style=ButtonStyle.PRIMARY,
+                    text=f"🔄 Replace ({len(safe['replacements'])})",
+                    callback_data=f"set:replace:{channel_id}",
+                    style=ButtonStyle.PRIMARY,
                 ),
                 InlineKeyboardButton(
-                    text=f"🎯 Filters {state(bool(settings['filters']))}",
-                    callback_data=f"set:filters:{channel_id}", style=ButtonStyle.SUCCESS,
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    text=f"📤 Forward {state(settings['forward']['enabled'])}",
-                    callback_data=f"set:forward:{channel_id}", style=ButtonStyle.PRIMARY,
-                ),
-                InlineKeyboardButton(
-                    text=f"✨ Prefix {state(bool(settings['prefix']))}",
-                    callback_data=f"set:prefix:{channel_id}", style=ButtonStyle.SUCCESS,
+                    text=f"🎯 Filters {state(bool(safe['filters']))}",
+                    callback_data=f"set:filters:{channel_id}",
+                    style=ButtonStyle.SUCCESS,
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    text=f"✨ Suffix {state(bool(settings['suffix']))}",
-                    callback_data=f"set:suffix:{channel_id}", style=ButtonStyle.PRIMARY,
+                    text=f"📤 Forward {state(safe['forward']['enabled'])}",
+                    callback_data=f"set:forward:{channel_id}",
+                    style=ButtonStyle.PRIMARY,
                 ),
                 InlineKeyboardButton(
-                    text=f"🎉 Stickers {state(settings['stickers']['enabled'])}",
-                    callback_data=f"set:stickers:{channel_id}", style=ButtonStyle.SUCCESS,
+                    text=f"✨ Prefix {state(bool(safe['prefix']))}",
+                    callback_data=f"set:prefix:{channel_id}",
+                    style=ButtonStyle.SUCCESS,
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    text=f"📊 Media Details {state(settings['media_details'])}",
-                    callback_data=f"set:media:{channel_id}", style=ButtonStyle.PRIMARY,
+                    text=f"✨ Suffix {state(bool(safe['suffix']))}",
+                    callback_data=f"set:suffix:{channel_id}",
+                    style=ButtonStyle.PRIMARY,
+                ),
+                InlineKeyboardButton(
+                    text=f"🎉 Stickers {state(safe['stickers']['enabled'])}",
+                    callback_data=f"set:stickers:{channel_id}",
+                    style=ButtonStyle.SUCCESS,
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"📊 Media Details {state(safe['media_details'])}",
+                    callback_data=f"set:media:{channel_id}",
+                    style=ButtonStyle.PRIMARY,
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="🗑 Remove", callback_data=f"remove:{channel_id}", style=ButtonStyle.DANGER
+                    text="🗑 Remove",
+                    callback_data=f"remove:{channel_id}",
+                    style=ButtonStyle.DANGER,
                 ),
                 InlineKeyboardButton(
-                    text="↩️ Back", callback_data="channels", style=ButtonStyle.PRIMARY
+                    text="↩️ Back",
+                    callback_data="channels",
+                    style=ButtonStyle.PRIMARY,
                 ),
             ],
         ]
@@ -233,19 +314,20 @@ def settings_menu(channel_id: int, settings: dict) -> InlineKeyboardMarkup:
 
 
 async def public_access(message: Message) -> bool:
-    """Apply public/private mode and delegate FSUB to its own plugin."""
+    """Apply public/private mode and the force-subscribe gate."""
     await DB.user_upsert(message.from_user.id, message.from_user.username or "")
     if await is_admin(message.from_user.id):
         return True
     if not PUBLIC_MODE:
         await private_notice(message)
         return False
+
     from .fsub import require_membership, send_gate
 
     allowed, _ = await require_membership(message.bot, message.from_user.id)
     if allowed:
         return True
-    if not valid_http_url(__import__("config").FSUB_LINK):
+    if not valid_http_url(FSUB_LINK):
         await message.answer(
             "⚠️ Force-subscribe is temporarily unavailable. "
             "Please contact the administrator."
@@ -256,22 +338,35 @@ async def public_access(message: Message) -> bool:
 
 
 async def public_access_cb(query) -> bool:
-    """Apply the same access rules to inline callbacks."""
+    """Apply public/private mode to inline callbacks."""
     await DB.user_upsert(query.from_user.id, query.from_user.username or "")
     if await is_admin(query.from_user.id):
         return True
     if not PUBLIC_MODE:
         await query.answer(
-            f"🔒 This Bot Is Private. Contact the administrator {ADMIN_USERNAME}",
+            "🔒 This Bot Is Private. "
+            f"Contact the administrator {ADMIN_USERNAME}",
             show_alert=True,
         )
         return False
-    from .fsub import require_membership
 
-    allowed, _ = await require_membership(query.bot, query.from_user.id)
+    from .fsub import require_membership, send_gate
+
+    allowed, keyboard = await require_membership(query.bot, query.from_user.id)
     if allowed:
         return True
-    await query.answer("🔒 Please join the required channel first.", show_alert=True)
+    if keyboard:
+        await query.message.answer(
+            "🔒 <b>Join Required</b>\n\nPlease join our channel to use this bot.",
+            reply_markup=keyboard,
+            parse_mode="HTML",
+        )
+    else:
+        await query.answer(
+            "⚠️ Force-subscribe is temporarily unavailable."
+            ,
+            show_alert=True,
+        )
     return False
 
 
@@ -288,8 +383,6 @@ async def require_admin(message: Message) -> bool:
 
 async def report_error(bot, message: Message, error: Exception) -> None:
     """Send unexpected processing errors to the owner."""
-    from html import escape
-
     RUNTIME["failed"] += 1
     try:
         await bot.send_message(

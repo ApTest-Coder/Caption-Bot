@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from html import escape
 
 from aiogram import Router
 from aiogram.exceptions import TelegramRetryAfter
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters
 
-from utils.formatter import format_caption
+from utils.formatter import format_caption, human_duration, human_size
+from utils.parser import media_values
 from .context import (
     DB,
     RUNTIME,
@@ -42,7 +44,7 @@ async def edit_caption(bot, message, caption: str) -> None:
 
 
 async def edit_markup(bot, message, markup: InlineKeyboardMarkup) -> None:
-    """Edit only the reply markup, which also works for stickers."""
+    """Edit only reply markup, including on sticker messages."""
     for attempt in range(2):
         try:
             await bot.edit_message_reply_markup(
@@ -88,6 +90,35 @@ def supports_caption_edit(message) -> bool:
     )
 
 
+def media_details_caption(message) -> str:
+    """Build a compact metadata block for the optional Media Details setting."""
+    values = media_values(message)
+    parts: list[str] = []
+    size = human_size(values.get("filesize"))
+    duration = human_duration(values.get("duration"))
+    width = values.get("width")
+    height = values.get("height")
+    mime_type = values.get("mime_type")
+
+    if size:
+        parts.append(f"• Size: {escape(size)}")
+    if duration:
+        parts.append(f"• Duration: {escape(duration)}")
+    if width and height:
+        parts.append(
+            f"• Resolution: {escape(str(width))}x{escape(str(height))}"
+        )
+    if mime_type:
+        parts.append(f"• MIME: {escape(str(mime_type))}")
+    if not parts:
+        return ""
+    return (
+        "<blockquote expandable>📊 <b>Media Details</b>\n"
+        + "\n".join(parts)
+        + "</blockquote>"
+    )
+
+
 @router.channel_post()
 async def process_channel_post(message) -> None:
     """Apply the selected channel's caption and button configuration."""
@@ -119,6 +150,10 @@ async def process_channel_post(message) -> None:
                 if caption
                 else settings["suffix"]
             )
+        if settings["media_details"]:
+            details = media_details_caption(message)
+            if details:
+                caption = f"{caption}\n{details}" if caption else details
 
         markup = build_markup(settings["buttons"])
         original_caption = message.caption or ""
@@ -132,6 +167,14 @@ async def process_channel_post(message) -> None:
         elif markup:
             await edit_markup(message.bot, message, markup)
             RUNTIME["edited"] += 1
+
+        sticker = settings["stickers"]
+        if sticker.get("enabled") and sticker.get("file_id"):
+            await message.bot.send_sticker(
+                chat_id=message.chat.id,
+                sticker=sticker["file_id"],
+                reply_parameters=ReplyParameters(message_id=message.message_id),
+            )
 
         forward = settings["forward"]
         if forward["enabled"] and forward["destination"]:

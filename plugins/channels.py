@@ -10,6 +10,7 @@ from aiogram.types import Message
 
 from database.settings import default_settings
 from .buttons import normalize_button, validate_button
+from .callbacks import edit_ui_message
 from .context import (
     DB,
     STATES,
@@ -45,10 +46,10 @@ async def channels_callback(query) -> None:
     if not await public_access_cb(query):
         return
     rows = await DB.list_channels(query.from_user.id)
-    await query.message.edit_text(
+    await edit_ui_message(
+        query.message,
         f"📺 <b>Channels</b>\n\nConnected: <b>{len(rows)}</b>",
-        parse_mode="HTML",
-        reply_markup=channel_menu(rows),
+        channel_menu(rows),
     )
     await query.answer()
 
@@ -59,11 +60,11 @@ async def add_channel_callback(query) -> None:
     if not await public_access_cb(query):
         return
     STATES[query.from_user.id] = {"type": "channel"}
-    await query.message.edit_text(
+    await edit_ui_message(
+        query.message,
         "➕ <b>Add Channel</b>\n\n"
         "Send the Channel ID or forward a message directly from that channel.\n"
         "The bot must already be an administrator there.\n\n/cancel",
-        parse_mode="HTML",
     )
     await query.answer()
 
@@ -82,12 +83,12 @@ async def channel_callback(query) -> None:
     if not row or row["owner_id"] != query.from_user.id:
         await query.answer("Not your channel.", show_alert=True)
         return
-    await query.message.edit_text(
+    await edit_ui_message(
+        query.message,
         f"📄 <b>{row['title']}</b>\n"
         f"🆔 <code>{channel_id}</code>\n"
         f"🔗 @{row.get('username') or 'private'}",
-        parse_mode="HTML",
-        reply_markup=settings_menu(channel_id, merged_config(row)),
+        settings_menu(channel_id, merged_config(row)),
     )
     await query.answer()
 
@@ -135,7 +136,7 @@ async def private_input(message: Message) -> None:
             me = await message.bot.get_me()
             member = await message.bot.get_chat_member(channel_id, me.id)
             if member.status not in {"administrator", "creator"}:
-                await message.answer("❌ Bot must be an administrator in this channel.")
+                await message.answer("❌ Bot must be an administrator in the channel.")
                 return
             chat = await message.bot.get_chat(channel_id)
             settings = default_settings()
@@ -144,7 +145,7 @@ async def private_input(message: Message) -> None:
                 channel_id,
                 chat.title or "Channel",
                 chat.username or "",
-                json.dumps(settings),
+                json.dumps(settings, ensure_ascii=False),
             )
             STATES.pop(message.from_user.id, None)
             await message.answer(

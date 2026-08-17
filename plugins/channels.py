@@ -17,6 +17,7 @@ from .context import (
     merged_config,
     public_access,
     public_access_cb,
+    report_error,
     settings_menu,
 )
 from .filters import validate_filter
@@ -126,6 +127,13 @@ async def private_input(message: Message) -> None:
                     return
                 channel_id = origin.id
 
+            existing = await DB.get_channel(channel_id)
+            if existing and existing["owner_id"] != message.from_user.id:
+                await message.answer(
+                    "❌ This channel is already managed by another user."
+                )
+                return
+
             me = await message.bot.get_me()
             member = await message.bot.get_chat_member(channel_id, me.id)
             if member.status not in {"administrator", "creator"}:
@@ -224,6 +232,4 @@ async def private_input(message: Message) -> None:
         )
     except Exception as exc:
         STATES.pop(message.from_user.id, None)
-        from .context import report_error
-
         await report_error(message.bot, message, exc)

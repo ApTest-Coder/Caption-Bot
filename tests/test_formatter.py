@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from plugins.caption import apply_replacements
 from utils.formatter import format_caption
 
 
@@ -15,6 +16,8 @@ def message(filename="Anime.S02E07.1080p.Hindi.mkv", caption=""):
     return SimpleNamespace(
         caption=caption,
         text=None,
+        html_caption=None,
+        html_text=None,
         video=video,
         audio=None,
         document=None,
@@ -88,6 +91,8 @@ def test_photo_metadata_uses_largest_photo_size():
     msg = SimpleNamespace(
         caption="",
         text=None,
+        html_caption=None,
+        html_text=None,
         video=None,
         audio=None,
         document=None,
@@ -113,3 +118,24 @@ def test_dynamic_metadata_is_html_escaped():
     )
     assert "A&amp;B &lt;test&gt;.mkv" in result
     assert "Tom &amp; &lt;Jerry&gt;" in result
+
+
+def test_replacements_do_not_corrupt_html_entities():
+    result = apply_replacements(
+        "<b>A&amp;B</b> &lt;test&gt;",
+        {"&": " and "},
+    )
+    assert result == "<b>A and B</b>  and  test &gt;"
+
+
+def test_html_caption_fallback_is_escaped():
+    msg = message(caption="Tom & <Jerry>")
+    result = format_caption("{html_caption}", msg)
+    assert result == "Tom &amp; &lt;Jerry&gt;"
+
+
+def test_html_caption_property_is_preserved():
+    msg = message(caption="ignored")
+    msg.html_caption = "<b>Formatted</b>"
+    result = format_caption("{html_caption}", msg)
+    assert result == "<b>Formatted</b>"

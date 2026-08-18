@@ -128,7 +128,7 @@ class Database:
         self.db = None
 
     async def user_upsert(self, user_id: int, username: str) -> None:
-        """Insert or refresh a tracked user and clear a stale block marker."""
+        """Insert or refresh a tracked user without clearing a block marker."""
         now = datetime.now(UTC).isoformat()
         if self.db is not None:
             await self.db.users.update_one(
@@ -137,9 +137,11 @@ class Database:
                     "$set": {
                         "username": username,
                         "last_seen": now,
+                    },
+                    "$setOnInsert": {
+                        "first_seen": now,
                         "blocked": False,
                     },
-                    "$setOnInsert": {"first_seen": now},
                 },
                 upsert=True,
             )
@@ -148,7 +150,7 @@ class Database:
         await self.sqlite.execute(
             "INSERT INTO users(user_id,username,blocked,first_seen,last_seen) "
             "VALUES(?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET "
-            "username=excluded.username, blocked=0, last_seen=excluded.last_seen",
+            "username=excluded.username, last_seen=excluded.last_seen",
             (user_id, username, 0, now, now),
         )
         await self.sqlite.commit()

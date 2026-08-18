@@ -26,6 +26,14 @@ from .forward import copy_with_retry
 router = Router()
 
 
+def source_caption_html(message) -> str:
+    """Return Telegram-safe HTML for an unchanged source caption."""
+    html_caption = getattr(message, "html_caption", None)
+    if isinstance(html_caption, str):
+        return html_caption
+    return escape(message.caption or "", quote=False)
+
+
 async def edit_caption(bot, message, caption: str) -> None:
     """Edit a caption with bounded FloodWait retry."""
     for attempt in range(2):
@@ -137,7 +145,7 @@ async def process_channel_post(message) -> None:
         caption = (
             format_caption(settings["caption"], message)
             if settings["caption"]
-            else (message.caption or "")
+            else source_caption_html(message)
         )
         for old, new in settings["replacements"].items():
             caption = caption.replace(old, safe_plain_text(new))
@@ -153,7 +161,7 @@ async def process_channel_post(message) -> None:
                 caption = f"{caption}\n{details}" if caption else details
 
         markup = build_markup(settings["buttons"])
-        original_caption = message.caption or ""
+        original_caption = source_caption_html(message)
         if supports_caption_edit(message):
             if caption != original_caption:
                 await edit_caption(message.bot, message, caption)

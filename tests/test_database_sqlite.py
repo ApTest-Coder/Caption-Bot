@@ -39,10 +39,12 @@ def test_sqlite_database_round_trip(tmp_path, monkeypatch):
 
             await db.mark_blocked(1001)
             assert await db.user_ids() == []
+            await db.user_upsert(1001, "tester-renamed")
+            assert await db.user_ids() == []
 
             await db.delete_channel(-1001234567890, 1001)
             assert await db.get_channel(-1001234567890) is None
         finally:
-            await db.sqlite.close()
+            await db.close()
 
     asyncio.run(exercise())

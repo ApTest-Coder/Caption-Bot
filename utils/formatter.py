@@ -16,8 +16,6 @@ SPECIAL_FALLBACKS = {
     "audio": "Audio",
 }
 
-# Only remove actual Telegram/HTML markup from the plain caption variable.
-# Angle-bracket text such as "<Jerry>" must remain normal user content.
 HTML_TAG_RE = re.compile(
     r"</?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|blockquote|tg-spoiler)"
     r"(?:\s[^>]*)?>",
@@ -65,6 +63,17 @@ def _escape_dynamic(value: object) -> str:
     return escape(str(value), quote=False)
 
 
+def _html_caption(message, original: str) -> str:
+    """Return Telegram's HTML representation when available, else safe text."""
+    rendered = getattr(message, "html_caption", None)
+    if rendered:
+        return str(rendered)
+    rendered = getattr(message, "html_text", None)
+    if rendered:
+        return str(rendered)
+    return escape(original, quote=False)
+
+
 def format_caption(template: str, message) -> str:
     """Render a caption while safely handling unavailable media metadata."""
     original = message.caption or message.text or ""
@@ -79,7 +88,7 @@ def format_caption(template: str, message) -> str:
     values.update(parsed)
 
     values["caption"] = strip_html(original)
-    values["html_caption"] = original
+    values["html_caption"] = _html_caption(message, original)
     values["ext"] = filename.rsplit(".", 1)[-1] if "." in filename else None
     values["resolution"] = (
         f"{values['width']}x{values['height']}"

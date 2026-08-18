@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from html import escape
+import re
+from html import escape, unescape
 
 from aiogram import Router
 from aiogram.exceptions import TelegramRetryAfter
@@ -24,6 +25,7 @@ from .context import (
 from .forward import copy_with_retry
 
 router = Router()
+HTML_PART_RE = re.compile(r"(<[^>]+>)")
 
 
 def source_caption_html(message) -> str:
@@ -32,6 +34,22 @@ def source_caption_html(message) -> str:
     if isinstance(html_caption, str):
         return html_caption
     return escape(message.caption or "", quote=False)
+
+
+def apply_replacements(caption: str, rules: dict[str, str]) -> str:
+    """Replace visible caption text without modifying HTML tags/entities."""
+    if not rules:
+        return caption
+
+    chunks = HTML_PART_RE.split(caption)
+    for index, chunk in enumerate(chunks):
+        if not chunk or (chunk.startswith("<") and chunk.endswith(">")):
+            continue
+        text = unescape(chunk)
+        for old, new in rules.items():
+            text = text.replace(old, new)
+        chunks[index] = escape(text, quote=False)
+    return "".join(chunks)
 
 
 async def edit_caption(bot, message, caption: str) -> None:
@@ -147,8 +165,7 @@ async def process_channel_post(message) -> None:
             if settings["caption"]
             else source_caption_html(message)
         )
-        for old, new in settings["replacements"].items():
-            caption = caption.replace(old, safe_plain_text(new))
+        caption = apply_replacements(caption, settings["replacements"])
         if settings["prefix"]:
             prefix = safe_plain_text(settings["prefix"])
             caption = f"{prefix}\n{caption}" if caption else prefix

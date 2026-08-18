@@ -66,8 +66,9 @@ def parse_filename(name: str) -> dict[str, str | None]:
         (language for language in LANGS if language.lower() in lower),
         None,
     )
-    if re.search(r"(?i)\bhindi\b", text):
-        result["audio"] = "Hindi"
+    # Audio is a language track when one can be inferred from the filename.
+    # Keep the generic "Audio" fallback in the formatter when nothing is found.
+    result["audio"] = result["language"]
     return result
 
 

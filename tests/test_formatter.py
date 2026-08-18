@@ -39,6 +39,11 @@ def test_dynamic_variables():
     assert "0:02:00" in result
 
 
+def test_audio_language_is_detected_from_filename():
+    result = format_caption("{audio}", message(filename="Show.S01E01.English.720p.mkv"))
+    assert result == "English"
+
+
 def test_season_with_no_separator_before_episode():
     """SxxEyy must resolve the season even without a separator."""
     result = format_caption("{season}", message(filename="Show.S09E12.720p.mkv"))

@@ -125,7 +125,7 @@ def test_replacements_do_not_corrupt_html_entities():
         "<b>A&amp;B</b> &lt;test&gt;",
         {"&": " and "},
     )
-    assert result == "<b>A and B</b>  and  test &gt;"
+    assert result == "<b>A and B</b> &lt;test&gt;"
 
 
 def test_html_caption_fallback_is_escaped():
